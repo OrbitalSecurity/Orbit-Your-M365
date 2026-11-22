@@ -1,6 +1,11 @@
-import tomllib
+import sys
 
 from orbit.core import config_store as cs
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover
+    import tomli as tomllib
 
 
 def test_first_load_creates_defaults(tmp_path):
