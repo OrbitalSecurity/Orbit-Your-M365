@@ -18,6 +18,8 @@ ORBIT is a Python application that **launches** other security tools. Prerequisi
 
 ## Windows 10/11 (Primary)
 
+> **Limitation: encrypted archives cannot be restored on Windows.** ORBIT can create an encrypted `.orbit.zip` there, but extraction fails closed on Windows ("extraction is not supported on Windows"). Keep the unencrypted copy of any run you need to read on Windows, or restore the archive on macOS or Linux.
+
 ### 1. Install Python 3.10+
 
 Download from [python.org](https://www.python.org/downloads/). During install, tick **"Add Python to PATH"**.
@@ -47,7 +49,7 @@ pip install -e ".[dev]"
 ### 4. Verify
 
 ```powershell
-pytest tests/ -v       # all 36 tests should pass
+pytest tests/ -v       # the full suite should pass
 python orbit.py --help
 python orbit.py --dry-run   # launches TUI in dry-run mode, no tenant needed
 ```
@@ -116,7 +118,7 @@ pytest tests/ -v
 python orbit.py --dry-run
 ```
 
-**Keychain on Linux:** ORBIT uses `libsecret` via the `keyring` library (GNOME Keyring / KWallet). If neither is available, ORBIT falls back to a Fernet-encrypted file at `~/.orbit/secrets.enc` and prompts for a passphrase.
+**Keychain on Linux:** ORBIT uses `libsecret` via the `keyring` library (GNOME Keyring / KWallet). If neither is available, ORBIT falls back to a Fernet-encrypted file (AES-128-CBC with HMAC-SHA256, key derived from your passphrase with PBKDF2) at `~/.orbit/secrets.enc` and prompts for a passphrase.
 
 ---
 
@@ -160,15 +162,35 @@ Install-Module -Name Hawk -Scope CurrentUser
 
 After installing tools you must record their SHA-256 hashes so ORBIT can check them for changes before each run. **Without this step, ORBIT will block every tool with "BLOCKED: integrity unverified".**
 
-With your venv active, from the project root:
+With your venv active (any directory):
 
 ```bash
-python scripts/generate_hashes.py
+orbit-generate-hashes
 ```
 
-The script finds each installed tool's directory, hashes every file, and writes the results into `data/tool_hashes.json`. Run it again any time you update a tool. It will not replace a differing baseline for a version it has already recorded: investigate the change, then delete that entry by hand.
+The command is installed with ORBIT. From a source checkout, `python scripts/generate_hashes.py` does the same. It finds each installed tool's directory, hashes every file, and writes the results into `~/.orbit/tool_hashes.json` (`$ORBIT_HOME/tool_hashes.json` if you set `ORBIT_HOME`). That file is yours: it lives outside the installed package, so upgrades and reinstalls do not touch it, and ORBIT never writes into the package. The first run creates `~/.orbit` (private) and the file from the package's empty template. Run it again any time you update a tool. It will not replace a differing baseline for a version it has already recorded: investigate the change, then delete that entry by hand.
 
-The script locks the manifest while it works and replaces it in one step, so it is safe to interrupt or to start twice.
+A baseline from an older release (`data/tool_hashes.json` in a source checkout) is **not imported**; the command prints a note if it finds one, and you record a fresh baseline against installations you trust. The old file is left unchanged.
+
+The baseline is a schema-2 file recorded for your account (and, on Windows, your computer). ORBIT refuses any other content by what is in it, not where it is: a schema-1 or unmarked file (such as an older `tool_hashes.json` copied into `~/.orbit`), the packaged template copied by hand, a file recorded for another user or computer (normally; see below), or a damaged file all block real runs. `orbit-generate-hashes` then exits with an error, leaves the file exactly as it was, and does not convert it. To start again, move the file aside and re-run the command:
+
+```bash
+mv ~/.orbit/tool_hashes.json ~/.orbit/tool_hashes.json.v1          # macOS / Linux
+```
+
+```powershell
+Move-Item "$env:USERPROFILE\.orbit\tool_hashes.json" "$env:USERPROFILE\.orbit\tool_hashes.json.v1"   # Windows
+```
+
+(Adjust the folder if you set `ORBIT_HOME`.) You then record a new baseline against installations you trust; a baseline should not be copied between accounts or computers.
+
+The binding is to the effective user ID on macOS and Linux (not to the machine), and on Windows to the current token SID plus the MachineGuid. A baseline copied to another account or computer is normally rejected because those identifiers differ, but a cloned environment that keeps them (a copied VM or image, or the same UID on another POSIX host) may still match. It is a guard against accidental cross-use, not authentication, and not a defence against malware running as the same user, which can compute the binding itself. Windows identity retrieval (token SID, MachineGuid) is unverified until the native Windows CI job has run.
+
+The command locks the manifest while it works and replaces it in one step, so it is safe to interrupt or to start twice.
+
+The location is vetted the same way when ORBIT reads the baseline before a real run and when this command writes it; a location that fails is refused for both. On macOS and Linux, `ORBIT_HOME` (default `~/.orbit`) and every directory above it must be owned by you (or root) and not writable by group or others, the manifest and its lock must be your own regular files without group/other write access or extra hard links, and symbolic links are refused for `ORBIT_HOME`, the directories you control above it, the manifest and the lock. `ORBIT_HOME` also may not be or lead into ORBIT's installed or source package, `orbit/data`, the checkout's legacy `data/` directory or another directory that held an older baseline. Errors name the problem, not the path: fix permissions with `chmod go-w`, or set `ORBIT_HOME` to a private directory you own.
+
+On Windows ORBIT cannot verify folder owners or ACLs without extra dependencies, so it uses a conservative rule instead: `ORBIT_HOME` must be inside your user profile and contain no link or junction below it. It does not detect a widened profile ACL, and the checks are not race-free; do not rely on more than your profile's default permissions.
 
 The baseline detects accidental changes and changes by other OS principals. It **cannot defend against a malicious process running as the same OS user**, which can alter the manifest as well as the files. A match is not proof of authenticity or provenance. A ROADtools baseline does not enable real ROADtools runs.
 

@@ -2,9 +2,10 @@ from pathlib import Path
 
 import pytest
 
+from orbit.config import FIXTURES_DIR
 from orbit.reporting import cve_map, parser, scorer
 
-FIX = Path(__file__).parent / "fixtures"
+FIX = FIXTURES_DIR
 
 
 @pytest.fixture()

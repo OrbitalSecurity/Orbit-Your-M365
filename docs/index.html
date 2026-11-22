@@ -193,7 +193,7 @@
     <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square">
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square">
     <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
-    <img src="https://img.shields.io/badge/version-1.2.0-purple?style=flat-square">
+    <img src="https://img.shields.io/badge/version-1.5.1-purple?style=flat-square">
     <img src="https://img.shields.io/badge/telemetry-none-brightgreen?style=flat-square">
   </div>
   <div class="cta">
@@ -221,7 +221,7 @@
   </div>
   <div class="value-item">
     <div class="value-number">0</div>
-    <div class="value-label">bytes sent externally</div>
+    <div class="value-label">telemetry or analytics requests</div>
   </div>
 </div>
 
@@ -256,7 +256,7 @@
     <div class="feature-card">
       <div class="feature-icon">📧</div>
       <h3>Email on completion</h3>
-      <p>SMTP delivery via your own mail server. HTML summary body, PDF attached. To + CC fields. Fires automatically when the run finishes.</p>
+      <p>Opt-in SMTP delivery via the mail server you configure (your own or a hosted provider). HTML summary body, PDF attached. To + CC fields. Sent when a real run finishes, only if you have configured SMTP and ticked the option. Nothing is emailed otherwise.</p>
     </div>
   </div>
 </section>
@@ -321,8 +321,8 @@ orbit --dry-run</pre>
   <div class="privacy-strip">
     <div class="privacy-item">
       <div class="icon">🔒</div>
-      <h4>100% client-side</h4>
-      <p>No data is transmitted anywhere. No analytics, no telemetry, no update pings.</p>
+      <h4>Client-side</h4>
+      <p>No analytics, no telemetry. Tenant, credential and finding data stay on your machine unless you enable SMTP email. ORBIT's own requests are an optional GitHub release check and the email you configure.</p>
     </div>
     <div class="privacy-item">
       <div class="icon">🗝️</div>
@@ -337,7 +337,7 @@ orbit --dry-run</pre>
     <div class="privacy-item">
       <div class="icon">📂</div>
       <h4>You control the output</h4>
-      <p>Reports written only to the folder you choose. Optional AES-256 encryption.</p>
+      <p>Reports written only to the folder you choose. Optional Fernet encryption (AES-128-CBC with HMAC-SHA256).</p>
     </div>
     <div class="privacy-item">
       <div class="icon">⚖️</div>

@@ -1,4 +1,4 @@
-"""Static mapping of M365 control IDs to CVEs / NIST refs (data/cve_mappings.json). Offline only."""
+"""Static mapping of M365 control IDs to CVEs / NIST refs (orbit/data/cve_mappings.json). Offline only."""
 from __future__ import annotations
 
 import json

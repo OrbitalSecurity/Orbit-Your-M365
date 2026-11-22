@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -40,3 +40,228 @@ jobs:
           cache: pip
       - run: pip install ruff
       - run: ruff check .
+
+  package:
+    name: Package (wheel + sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build --outdir "$RUNNER_TEMP/dist" .
+
+      - name: Check wheel and sdist contents (resources, empty template, entry point, no baseline)
+        run: python -I scripts/ci_package_checks.py contents "$RUNNER_TEMP/dist"
+
+      - name: Install the wheel alone and run a guarded offline headless dry-run
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/orbit-installed"
+          rm -rf "$work"
+          mkdir -p "$work/cwd" "$work/home" "$work/out" "$work/empty-path"
+          python -m venv "$work/venv"
+
+          wheels=("$RUNNER_TEMP"/dist/orbit_m365-1.5.1-*.whl)
+          test "${#wheels[@]}" -eq 1
+          "$work/venv/bin/python" -m pip install --no-cache-dir "${wheels[0]}"
+
+          # Settings live only in the scratch ORBIT_HOME; reports go to the scratch out dir.
+          # PDF and DOCX are the final reports: the checks below look for exactly those files.
+          printf "[output]\ndirectory = '%s'\nformats = [\"pdf\", \"docx\"]\n" "$work/out" > "$work/home/config.toml"
+
+          cd "$work/cwd"   # outside the checkout
+          export ORBIT_HOME="$work/home"
+          unset PYTHONPATH PYTHONHOME
+
+          cli_version="$("$work/venv/bin/orbit" --version)"
+          echo "orbit --version: $cli_version"
+          case "$cli_version" in
+            *" 1.5.1") ;;
+            *) echo "unexpected CLI version: $cli_version" >&2; exit 1 ;;
+          esac
+          lib="$("$work/venv/bin/python" -I -c 'import orbit.config as c; print(c.VERSION); print(c.__file__)')"
+          echo "$lib"
+          test "$(printf '%s\n' "$lib" | sed -n 1p)" = "1.5.1"
+          case "$(printf '%s\n' "$lib" | sed -n 2p)" in
+            */site-packages/orbit/config.py) ;;
+            *) echo "orbit.config was not imported from site-packages" >&2; exit 1 ;;
+          esac
+
+          # The one dry-run that counts runs inside the guard below: the installed `orbit` console
+          # script's own entry point, noninteractive, with network and process creation blocked and
+          # every attempt recorded (before it raises, so a swallowed exception still shows). It
+          # needs no tenant, credentials, tool or network, checks the generated PDF and DOCX
+          # reports, and that the installed package is what ran. No earlier unguarded dry-run is
+          # used as evidence.
+          "$work/venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/ci_package_checks.py" smoke "$work" "$GITHUB_WORKSPACE"
+
+      - name: Installed baseline command writes only the per-user ORBIT_HOME manifest
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/orbit-installed"
+          cd "$work/cwd"   # outside the checkout
+          unset PYTHONPATH PYTHONHOME
+
+          # Synthetic installation, guarded run: the manifest lands in ORBIT_HOME, the package and
+          # its template are untouched, and the real-run gate is shut before it and open after it.
+          "$work/venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/ci_package_checks.py" baseline "$work" "$GITHUB_WORKSPACE"
+
+          # The installed console script itself, with no PowerShell on PATH so that nothing real can
+          # be discovered: it must seed the baseline from the template and report no tools found.
+          home="$work/script-home"
+          set +e
+          PATH="$work/empty-path" ORBIT_HOME="$home" "$work/venv/bin/orbit-generate-hashes" > "$work/script.out" 2>&1
+          code=$?
+          set -e
+          cat "$work/script.out"
+          test "$code" -eq 1
+          grep -q "No tools found" "$work/script.out"
+          "$work/venv/bin/python" -I -c 'import json, sys; d = json.load(open(sys.argv[1])); assert all(v == {"versions": {}} for v in d["tools"].values()), d' "$home/tool_hashes.json"
+
+  # Native Windows validation of the current product behaviour. It checks that the wheel installs
+  # and runs on real Windows and that the schema-2 baseline's SID and MachineGuid retrieval works.
+  # It does not validate folder-permission protection, which ORBIT does not claim on Windows.
+  # Fully synthetic and offline for ORBIT itself: no secrets, credentials, mail, real tool,
+  # PowerShell module, upload or publishing. Scratch lives under the user profile because the
+  # Windows ORBIT_HOME policy requires it (RUNNER_TEMP is outside the profile).
+  windows-validation:
+    name: Windows release validation (native, Python 3.12)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Native Windows tests (a skipped or missing test fails the job)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { throw "pip install of the dev environment failed" }
+          $report = Join-Path $env:RUNNER_TEMP "windows-native-tests.xml"
+          python -m pytest tests/test_windows_native.py -v -rs -p no:cacheprovider "--junitxml=$report"
+          if ($LASTEXITCODE -ne 0) { throw "native Windows tests failed" }
+          python -X utf8 -I scripts\ci_package_checks.py junit $report 8
+          if ($LASTEXITCODE -ne 0) { throw "native Windows tests were skipped or did not run" }
+
+      - name: Build wheel and sdist on this runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install build
+          if ($LASTEXITCODE -ne 0) { throw "pip install build failed" }
+          $dist = Join-Path $env:RUNNER_TEMP "dist"
+          python -m build --outdir $dist .
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          python -X utf8 -I scripts\ci_package_checks.py contents $dist
+          if ($LASTEXITCODE -ne 0) { throw "wheel/sdist contents check failed" }
+
+      - name: Install the wheel alone in a clean venv outside the checkout
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = Join-Path $env:RUNNER_TEMP "dist"
+          $work = Join-Path $env:USERPROFILE "orbit-win-validation\$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+          if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+          foreach ($d in "cwd", "home", "out", "empty-path") {
+            New-Item -ItemType Directory -Force -Path (Join-Path $work $d) | Out-Null
+          }
+          "ORBIT_WIN_WORK=$work" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          python -m venv (Join-Path $work "venv")
+          if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
+          $py = Join-Path $work "venv\Scripts\python.exe"
+          $wheels = @(Get-ChildItem -LiteralPath $dist -Filter "orbit_m365-1.5.1-*.whl")
+          if ($wheels.Count -ne 1) { throw "expected exactly one wheel, found $($wheels.Count)" }
+          & $py -m pip install --no-cache-dir $wheels[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "wheel installation failed" }
+
+          Set-Location (Join-Path $work "cwd")   # outside the checkout
+          Remove-Item Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          $cli = (& (Join-Path $work "venv\Scripts\orbit.exe") --version | Out-String).Trim()
+          Write-Host "orbit --version: $cli"
+          if (-not $cli.EndsWith(" 1.5.1")) { throw "unexpected CLI version: $cli" }
+          $lib = @(& $py -X utf8 -I -c "import orbit.config as c; print(c.VERSION); print(c.__file__)")
+          if ($LASTEXITCODE -ne 0) { throw "import of orbit.config failed" }
+          Write-Host ($lib -join "`n")
+          if ($lib[0] -ne "1.5.1") { throw "unexpected library version" }
+          if ($lib[1] -notlike "*\site-packages\orbit\config.py") { throw "orbit.config was not imported from site-packages" }
+          if ($lib[1].StartsWith($env:GITHUB_WORKSPACE, [StringComparison]::OrdinalIgnoreCase)) { throw "orbit was imported from the checkout" }
+
+      - name: Guarded offline headless dry-run (PDF and DOCX reports, no baseline created)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = $env:ORBIT_WIN_WORK
+          if (-not $work.StartsWith($env:USERPROFILE, [StringComparison]::OrdinalIgnoreCase)) { throw "scratch is outside the user profile" }
+          $py = Join-Path $work "venv\Scripts\python.exe"
+          # Settings live only in the scratch ORBIT_HOME; reports go to the scratch out dir.
+          $toml = "[output]`ndirectory = '" + (Join-Path $work "out") + "'`nformats = [`"pdf`", `"docx`"]`n"
+          [System.IO.File]::WriteAllText((Join-Path $work "home\config.toml"), $toml, (New-Object System.Text.UTF8Encoding($false)))
+          Set-Location (Join-Path $work "cwd")   # outside the checkout
+          Remove-Item Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          $env:ORBIT_HOME = Join-Path $work "home"
+          & $py -X utf8 -I "$env:GITHUB_WORKSPACE\scripts\ci_package_checks.py" smoke $work $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw "guarded dry-run check failed" }
+
+      - name: Synthetic baseline lifecycle and refused baselines (scratch ORBIT_HOME in the profile)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = $env:ORBIT_WIN_WORK
+          $py = Join-Path $work "venv\Scripts\python.exe"
+          Set-Location (Join-Path $work "cwd")
+          Remove-Item Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          & $py -X utf8 -I "$env:GITHUB_WORKSPACE\scripts\ci_package_checks.py" baseline $work $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw "baseline lifecycle check failed" }
+
+      - name: Native SID and MachineGuid retrieval matches the generated binding
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = $env:ORBIT_WIN_WORK
+          $py = Join-Path $work "venv\Scripts\python.exe"
+          Set-Location (Join-Path $work "cwd")
+          Remove-Item Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          & $py -X utf8 -I "$env:GITHUB_WORKSPACE\scripts\ci_package_checks.py" identity
+          if ($LASTEXITCODE -ne 0) { throw "native Windows identity retrieval failed" }
+
+      - name: Installed baseline command with no tools (exit 1, bound empty schema-2 baseline)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $work = $env:ORBIT_WIN_WORK
+          $py = Join-Path $work "venv\Scripts\python.exe"
+          Set-Location (Join-Path $work "cwd")
+          Remove-Item Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          # An empty PATH, so that no PowerShell can be found and nothing real can be discovered.
+          $home2 = Join-Path $work "script-home"
+          $savedPath = $env:PATH
+          $env:PATH = Join-Path $work "empty-path"
+          $env:ORBIT_HOME = $home2
+          try {
+            $text = (& (Join-Path $work "venv\Scripts\orbit-generate-hashes.exe") 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+          } finally {
+            $env:PATH = $savedPath
+          }
+          Write-Host $text
+          if ($code -ne 1) { throw "orbit-generate-hashes exited $code, expected 1" }
+          if ($text -notmatch "No tools found") { throw "the no-tools message was not printed" }
+          & $py -X utf8 -I "$env:GITHUB_WORKSPACE\scripts\ci_package_checks.py" seeded $home2
+          if ($LASTEXITCODE -ne 0) { throw "the no-tools baseline is not a bound empty schema-2 file" }
+
+      - name: Remove scratch
+        if: always()
+        run: |
+          if ($env:ORBIT_WIN_WORK -and (Test-Path -LiteralPath $env:ORBIT_WIN_WORK)) {
+            Remove-Item -LiteralPath $env:ORBIT_WIN_WORK -Recurse -Force -ErrorAction SilentlyContinue
+          }

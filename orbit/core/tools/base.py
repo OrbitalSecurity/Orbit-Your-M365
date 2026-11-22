@@ -77,7 +77,7 @@ class Tool(ABC):
     needs_admin: bool = False
     needs_pwsh: bool = True
     supported_os: tuple[str, ...] = ("windows", "macos", "linux")
-    fixture: str = ""    # dry-run fixture filename in tests/fixtures
+    fixture: str = ""    # dry-run fixture filename in orbit/data/fixtures
     output_name: str = ""  # file the tool writes inside its output dir
     import_root: str = ""  # pypi: top-level import directory covered by the hash manifest
     import_package: str = ""  # pypi: package expected inside import_root

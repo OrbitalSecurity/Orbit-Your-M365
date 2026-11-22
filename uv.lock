@@ -1250,7 +1250,7 @@ wheels = [
 
 [[package]]
 name = "orbit-m365"
-version = "1.0.0"
+version = "1.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

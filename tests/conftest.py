@@ -66,18 +66,18 @@ def private_tmp(tmp_path_factory, monkeypatch):
 
 @pytest.fixture()
 def manifest_file(tmp_path, monkeypatch):
-    """A throwaway manifest; record(tool, version, files) adds a baseline to it."""
-    import json
+    """A throwaway schema-2 baseline for this user; record(tool, version, files) adds one."""
+    from baseline_helpers import write
 
     from orbit.core import hash_checker
     path = tmp_path / "test_manifest.json"
-    data = {"tools": {}}
-    path.write_text(json.dumps(data))
-    monkeypatch.setattr(hash_checker, "MANIFEST_PATH", path)
+    tools: dict = {}
+    write(path, tools)
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: path)
 
     def record(tool, version, files):
-        data["tools"].setdefault(tool, {"versions": {}})["versions"][version] = {"files": files}
-        path.write_text(json.dumps(data))
+        tools.setdefault(tool, {})[version] = files
+        write(path, tools)
 
     record.path = path
     return record
@@ -114,3 +114,35 @@ def fake_pwsh(tmp_path):
 
     make.calls = lambda: marker.read_text().splitlines() if marker.exists() else []
     return make
+
+
+@pytest.fixture()
+def synthetic(tmp_path, monkeypatch):
+    """One fake installed tool; discovery returns it with no pwsh and no process."""
+    from types import SimpleNamespace
+
+    from orbit.core import baseline
+    from orbit.core.executables import Executable
+    from orbit.core.tools import base, get_tool
+    from orbit.core.tools.discovery import Installation
+
+    root = tmp_path / "installs" / "Maester"
+    root.mkdir(parents=True)
+    (root / "Maester.psd1").write_text("synthetic manifest")
+    (root / "Maester.psm1").write_text("synthetic body")
+    exe = tmp_path / "interpreter"
+    exe.write_text("not a real interpreter")
+    exe.chmod(0o755)
+    inst = Installation("1.2.3", root, root / "Maester.psd1", Executable.capture(exe.resolve()))
+    tool = get_tool("maester")
+    monkeypatch.setattr(base.Tool, "discover", lambda self: inst)
+    monkeypatch.setattr(baseline, "all_tools", lambda: [tool])
+    return SimpleNamespace(tool=tool, root=root)
+
+
+@pytest.fixture()
+def home(tmp_path, monkeypatch):
+    """A not-yet-existing ORBIT_HOME, so the command has to create it."""
+    path = tmp_path / "fresh-orbit-home"
+    monkeypatch.setenv("ORBIT_HOME", str(path))
+    return path

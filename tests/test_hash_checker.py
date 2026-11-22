@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from baseline_helpers import baseline
 
 from orbit.core.hash_checker import (
     HashStatus,
@@ -14,8 +15,11 @@ from orbit.core.platform_check import PlatformInfo, compat_flags
 from orbit.core.tools import ToolStatus, all_tools, get_tool
 
 
+ZERO = "00" * 32
+
+
 def _manifest(tool, ver, files):
-    return {"tools": {tool: {"versions": {ver: {"files": files}}}}}
+    return baseline({tool: {ver: files}})
 
 
 def test_sha256_known(tmp_path):
@@ -35,23 +39,27 @@ def test_ok_mismatch_unverified(tmp_path):
 
 
 def test_missing_file_is_mismatch(tmp_path):
-    r = check_tool("t", "1", tmp_path, _manifest("t", "1", {"gone.txt": "00"}))
+    r = check_tool("t", "1", tmp_path, _manifest("t", "1", {"gone.txt": ZERO}))
     assert r.status is HashStatus.MISMATCH and r.missing == ["gone.txt"]
 
 
 def test_gate_blocks_and_has_no_override(tmp_path):
     (tmp_path / "f").write_text("x")
-    r = check_tool("t", "1", tmp_path, _manifest("t", "1", {"f": "00"}))
+    r = check_tool("t", "1", tmp_path, _manifest("t", "1", {"f": ZERO}))
     assert gate_run([r])[0] is False
     with pytest.raises(TypeError):
         gate_run([r], override=True)
     assert gate_run([])[0] is False
 
 
-def test_bundled_manifest_loads():
-    m = load_manifest()
-    assert set(m["tools"]) == {t.name for t in all_tools()}
-    json.dumps(m)
+def test_packaged_template_is_empty_and_is_not_the_active_baseline():
+    from orbit.core.hash_checker import TEMPLATE_PATH, manifest_path
+    template = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+    assert set(template["tools"]) == {t.name for t in all_tools()}
+    assert all(v == {"versions": {}} for v in template["tools"].values())
+    assert manifest_path() != TEMPLATE_PATH
+    with pytest.raises(FileNotFoundError):  # nothing is recorded until the user records it
+        load_manifest()
 
 
 def test_tool_status():

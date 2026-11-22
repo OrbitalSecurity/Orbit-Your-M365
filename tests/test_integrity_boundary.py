@@ -12,8 +12,12 @@ import venv
 from pathlib import Path
 
 import pytest
+from baseline_helpers import baseline as make_baseline
+from baseline_helpers import document, encode
+from baseline_helpers import write as write_baseline
 
 from orbit.core import hash_checker, headless, history, runner
+from orbit.core.baseline_schema import BaselineError, ErrorCode
 from orbit.core.executables import Executable
 from orbit.core.hash_checker import HashResult, HashStatus, check_tool, gate_run, hash_tree
 from orbit.core.runner import Runner, RunStatus
@@ -27,7 +31,8 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX lin
 
 
 def _manifest(files, tool="t", version="1"):
-    return {"tools": {tool: {"versions": {version: {"files": files}}}}}
+    """A validated schema-2 Baseline for this user; check_tool accepts nothing else."""
+    return make_baseline({tool: {version: files}})
 
 
 @pytest.fixture()
@@ -89,9 +94,9 @@ def store(monkeypatch):
 def installed(tmp_path, monkeypatch):
     """Fake installation of every tool plus a manifest; returns a per-tool state setter."""
     manifest_path = tmp_path / "manifest.json"
-    manifest = {"tools": {}}
-    manifest_path.write_text(json.dumps(manifest))
-    monkeypatch.setattr(hash_checker, "MANIFEST_PATH", manifest_path)
+    manifest: dict = {}
+    write_baseline(manifest_path, manifest)
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: manifest_path)
     roots = {}
     exe = tmp_path / "interpreter"
     exe.write_text("not a real interpreter")
@@ -108,8 +113,8 @@ def installed(tmp_path, monkeypatch):
     def set_state(name, state):
         if state == "unverified":
             return
-        manifest["tools"][name] = {"versions": {"1": {"files": hash_tree(roots[name])}}}
-        manifest_path.write_text(json.dumps(manifest))
+        manifest[name] = {"1": hash_tree(roots[name])}
+        write_baseline(manifest_path, manifest)
         if state == "modified":
             (roots[name] / "module.psd1").write_text("evil")
         elif state == "missing":
@@ -172,11 +177,13 @@ def test_no_path_is_excluded_from_the_file_set(tree, planted):
     assert r.status is BAD and r.unexpected == [planted]
 
 
-def test_hash_tree_is_sorted_and_uppercase_digests_match(tree):
+def test_hash_tree_is_sorted_and_uppercase_digests_are_not_a_valid_baseline(tree):
     files = hash_tree(tree)
     assert list(files) == sorted(files) == ["m.psd1", "sub/code.psm1"]
     upper = {k: v.upper() for k, v in files.items()}
-    assert check_tool("t", "1", tree, _manifest(upper)).status is OK
+    with pytest.raises(BaselineError) as bad:  # schema 2 digests are lowercase hex, exactly
+        _manifest(upper)
+    assert bad.value.code is ErrorCode.ENTRY_MALFORMED
 
 
 @posix_only
@@ -224,16 +231,34 @@ def test_manifest_keys_cannot_reach_outside_the_root(tree, tmp_path):
     outside = tmp_path / "outside"
     outside.write_text("x")
     files = {**hash_tree(tree), "../outside": hash_checker.sha256_file(outside)}
-    r = check_tool("t", "1", tree, _manifest(files))
-    assert r.status is BAD and r.missing == ["../outside"]
+    with pytest.raises(BaselineError) as bad:  # such a key cannot be part of a valid baseline
+        _manifest(files)
+    assert bad.value.code is ErrorCode.ENTRY_MALFORMED
 
 
-@pytest.mark.parametrize("manifest", [
-    {}, {"tools": []}, {"tools": {"t": None}}, [], _manifest({}), _manifest(None),
-    _manifest(["m.psd1"]), _manifest({"m.psd1": 7}), _manifest("text"),
+@pytest.mark.parametrize("raw", [
+    {}, {"tools": []}, {"tools": {"t": None}}, [], "text", 7,
+    {"schema": 2, "tools": {"t": {"versions": {"1": {"files": {"m.psd1": "00" * 32}}}}}},
 ])
-def test_bad_or_empty_manifest_is_unverified(tree, manifest):
-    assert check_tool("t", "1", tree, manifest).status is UNKNOWN
+def test_raw_data_is_never_accepted_as_a_baseline(tree, raw):
+    with pytest.raises(TypeError):  # no dict or other raw object reaches the authorisation code
+        check_tool("t", "1", tree, raw)
+
+
+@pytest.mark.parametrize("tools", [
+    {"t": {"1": {}}}, {"t": {"1": None}}, {"t": {"1": ["m.psd1"]}}, {"t": {"1": {"m.psd1": 7}}},
+    {"t": {"1": "text"}}, {"t": {"": {"m.psd1": "00" * 32}}},
+])
+def test_a_baseline_with_a_bad_entry_cannot_be_built_or_loaded(tree, tmp_path, monkeypatch, tools):
+    doc = document()
+    doc["tools"] = {t: {"versions": {v: {"files": f} for v, f in versions.items()}}
+                    for t, versions in tools.items()}
+    path = tmp_path / "manifest.json"
+    path.write_bytes(encode(doc))
+    path.chmod(0o600)
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: path)
+    result = check_tool("t", "1", tree)  # through the real read path
+    assert result.status is UNKNOWN and result.blocks_run
 
 
 @pytest.mark.parametrize("content", [None, "", "{not json", b"\xff\xfe\x00"])
@@ -241,14 +266,15 @@ def test_unreadable_manifest_file_is_unverified(tree, tmp_path, monkeypatch, con
     path = tmp_path / "manifest.json"
     if content is not None:
         path.write_bytes(content if isinstance(content, bytes) else content.encode())
-    monkeypatch.setattr(hash_checker, "MANIFEST_PATH", path)
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: path)
     assert check_tool("t", "1", tree).status is UNKNOWN
 
 
 def test_unknown_version_or_location_is_unverified(tree):
     manifest = _manifest(hash_tree(tree))
     assert check_tool("t", None, tree, manifest).status is UNKNOWN
-    assert check_tool("t", "", tree, _manifest(hash_tree(tree), version="")).status is UNKNOWN
+    with pytest.raises(BaselineError):  # an empty version key is not a valid entry
+        _manifest(hash_tree(tree), version="")
     assert check_tool("t", "1", None, manifest).status is UNKNOWN
     assert check_tool("t", "1", tree / "absent", manifest).status is UNKNOWN
 
@@ -604,14 +630,14 @@ def fake_roadtools(tmp_path, monkeypatch, roadtools_mechanics):
     monkeypatch.setattr(discovery, "site_dir", site.resolve)
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{}")
-    monkeypatch.setattr(hash_checker, "MANIFEST_PATH", manifest)
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: manifest)
     return site / "roadtools", executed, manifest
 
 
 def _roadtools_baseline(manifest):
     inst = get_tool("roadtools").discover()
     files = hash_tree(inst.root, inst.members, inst.strict_member)
-    manifest.write_text(json.dumps(_manifest(files, "roadtools", "9.9")))
+    write_baseline(manifest, {"roadtools": {"9.9": files}})
 
 
 def test_roadtools_discovery_does_not_execute_the_package(fake_roadtools):
@@ -662,11 +688,9 @@ def test_roadtools_launch_cannot_be_shadowed(fake_roadtools, tmp_path, monkeypat
 
 @pytest.fixture()
 def generator(tmp_path, monkeypatch, installed):
-    spec = importlib.util.spec_from_file_location("gen_hashes", ROOT / "scripts/generate_hashes.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "MANIFEST", hash_checker.MANIFEST_PATH)
-    return module
+    from orbit.core import baseline
+    monkeypatch.setattr(hash_checker, "manifest_path", lambda: tmp_path / "manifest.json")
+    return baseline
 
 
 def test_generated_baseline_satisfies_the_gate(generator):

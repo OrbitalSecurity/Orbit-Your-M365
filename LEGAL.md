@@ -77,7 +77,7 @@ ORBIT is an independent community project and is **not affiliated with, endorsed
 
 See [docs/PRIVACY.md](docs/PRIVACY.md) for the full privacy statement.
 
-**Summary:** ORBIT makes no outbound network connections of its own. No data is transmitted to the author or any third party. No telemetry is collected. Credentials are stored in your OS keychain or an encrypted local file. All CVE and remediation data is bundled offline.
+**Summary:** ORBIT's own network requests are (1) an optional GitHub release check (`api.github.com`), which sends no tenant, credential, finding or user data; GitHub sees your IP address; and (2) SMTP email that you configure and explicitly enable, which sends a test message or, after a real run, a summary containing assessment details with the PDF report attached, to the SMTP server and recipients you chose. That server may be operated by a hosted mail provider or another third party, and the recipients may be external; those destinations are selected and configured by you, and ORBIT has no control over how they handle the message. The tools ORBIT launches and its installers make their own connections. ORBIT does not automatically submit anything to the author, and no telemetry or analytics are collected. Credentials are stored in your OS keychain or an encrypted local file. All CVE and remediation data is bundled offline.
 
 ---
 

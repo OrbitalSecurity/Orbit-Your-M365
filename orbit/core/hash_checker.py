@@ -1,4 +1,13 @@
-"""SHA-256 integrity checks of installed tool files against data/tool_hashes.json.
+"""SHA-256 integrity checks of installed tool files against the per-user baseline.
+
+The baseline is ORBIT_HOME/tool_hashes.json. It is mutable user trust state, so it lives in ORBIT_HOME (normally
+~/.orbit/tool_hashes.json) and never in the installed package, which ORBIT only reads. The
+package carries an empty template that seeds it; the template is not consulted as a baseline.
+
+Only a schema-2 baseline generated for this user (and, on Windows, this machine) can authorise
+anything: ``load_manifest`` returns a validated ``Baseline`` or raises, and ``check_tool`` accepts
+nothing else. Older (schema 1 or unmarked) content is refused wherever it was found, by content
+and never by location. See ``orbit.core.baseline_schema``.
 
 Fail closed: only an explicit OK result that is bound to a verified snapshot authorises a real
 run, and there is no override.
@@ -18,7 +27,6 @@ and the runtime files alike. A match is neither authenticity nor provenance.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import stat
@@ -28,6 +36,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from orbit.config import DATA_DIR
+from orbit.core import baseline_schema
+from orbit.core.baseline_schema import Baseline, BaselineError, parse_baseline
+from orbit.core.config_store import orbit_home
 from orbit.core.executables import Executable
 from orbit.core.safe_fs import (
     create_file,
@@ -37,13 +48,15 @@ from orbit.core.safe_fs import (
     read_below,
     sha256_file,
 )
+from orbit.core.trusted_state import MANIFEST_NAME, UnsafeState, open_state_dir
 from orbit.core.workspace import Workspace
 
 if TYPE_CHECKING:
     from orbit.core.tools.base import Tool
     from orbit.core.tools.discovery import Installation
 
-MANIFEST_PATH = DATA_DIR / "tool_hashes.json"
+TEMPLATE_PATH = DATA_DIR / "tool_hashes.template.json"  # packaged, read-only, never a baseline
+NO_BASELINE = "no integrity baseline has been recorded; run orbit-generate-hashes"
 _MAX_LISTED = 10
 
 
@@ -167,35 +180,63 @@ def hash_tree(root: Path, members: tuple[str, ...] | None = None,
     return dict(sorted((p.relative_to(root).as_posix(), sha256_file(p)) for p in found))
 
 
-def load_manifest(path: Path | None = None) -> dict:
-    return json.loads(Path(path or MANIFEST_PATH).read_text(encoding="utf-8"))
+def manifest_path() -> Path:
+    """The active baseline, ORBIT_HOME/tool_hashes.json, resolved on every call.
+
+    Not a module constant: ORBIT_HOME may change after import (tests, wrappers).
+    """
+    return orbit_home() / MANIFEST_NAME
+
+
+def load_manifest(path: Path | None = None) -> Baseline:
+    """Read the user's baseline. Absent, unreadable, invalid or untrusted raises; the gate stays shut.
+
+    The directory and the file are vetted by ``trusted_state``, the same policy the writer
+    applies: owned by you, not writable by others, no links, not inside ORBIT's own install.
+    The bytes must then be a valid schema-2 baseline for this user and machine, whatever the
+    path: schema-1, newer, unbound, other-user and damaged content raises ``BaselineError``.
+    """
+    target = Path(path) if path else manifest_path()
+    with open_state_dir(target.parent) as state:
+        data, _ = state.read_regular(target.name)
+    return parse_baseline(data, baseline_schema.current_binding())  # after the read, so no file stays NO_BASELINE
 
 
 def check_tool(tool: str, version: str | None, install_dir: Path | None,
-               manifest: dict | None = None, members: tuple[str, ...] | None = None,
+               baseline: Baseline | None = None, members: tuple[str, ...] | None = None,
                strict_member: str = "") -> HashResult:
+    """Compare an installation with the baseline. Only a validated ``Baseline`` is accepted.
+
+    With no baseline given, the active one is loaded (and validated) here. A plain dict, or any
+    other object, is a programming error and raises ``TypeError``: raw data never authorises.
+    """
     def unverified(reason: str) -> HashResult:
         return HashResult(tool, version, HashStatus.UNVERIFIED, reason=reason)
 
+    if baseline is not None and not isinstance(baseline, Baseline):
+        raise TypeError("check_tool needs a Baseline validated by parse_baseline")
     if not version or install_dir is None:
         return unverified("installation or version unknown")
     try:
-        manifest = manifest if manifest is not None else load_manifest()
-        expected = (manifest.get("tools", {}).get(tool, {}).get("versions", {})
-                    .get(version, {}).get("files"))
+        baseline = baseline if baseline is not None else load_manifest()
+        expected = baseline.files_for(tool, version)
+    except FileNotFoundError:
+        return unverified(NO_BASELINE)
+    except UnsafeState as exc:  # fixed text, never the path
+        return unverified(f"the baseline is not trusted: {exc}")
+    except BaselineError as exc:  # fixed text, never the content
+        return unverified(str(exc))
     except (OSError, ValueError, AttributeError) as exc:
         return unverified(f"manifest unreadable: {type(exc).__name__}")
     if not expected:
         return unverified("no manifest entry for this version")
-    if not isinstance(expected, dict) or not all(isinstance(v, str) for v in expected.values()):
-        return unverified("manifest entry is malformed")
     try:
         actual = hash_tree(Path(install_dir), members, strict_member)
     except (OSError, ValueError) as exc:
         return unverified(f"installation unreadable: {exc}")
     # Compare sets of names; never open a path that was built from a manifest key.
     modified = sorted(k for k in expected.keys() & actual.keys()
-                      if actual[k] != expected[k].lower())
+                      if actual[k] != expected[k])
     missing = sorted(expected.keys() - actual.keys())
     unexpected = sorted(actual.keys() - expected.keys())
     status = HashStatus.MISMATCH if (modified or missing or unexpected) else HashStatus.OK

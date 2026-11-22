@@ -1,9 +1,10 @@
 from pathlib import Path
 
+from orbit.config import FIXTURES_DIR
 from orbit.reporting import parser
 from orbit.reporting.parser import Finding
 
-FIX = Path(__file__).parent / "fixtures"
+FIX = FIXTURES_DIR
 SCUBA, MAESTER = FIX / "scubagear_sample.json", FIX / "maester_sample.json"
 
 

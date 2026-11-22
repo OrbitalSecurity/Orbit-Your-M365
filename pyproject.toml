@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbit-m365"
-version = "1.0.0"
+version = "1.5.1"
 description = "ORBIT - Office 365 Risk & Baseline Intelligence Toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Reece Gabriel Dickson" }]
 dependencies = [
     "textual>=0.60",
@@ -28,17 +28,28 @@ dev = ["pytest>=8", "pytest-asyncio", "ruff", "mypy", "pre-commit"]
 
 [project.scripts]
 orbit = "orbit.cli:main"
+orbit-generate-hashes = "orbit.core.baseline:cli"
 
 [tool.setuptools.packages.find]
 include = ["orbit*"]
 
 [tool.setuptools.package-data]
-orbit = ["templates/*", "reporting/templates/*"]
+# Explicit, never a glob: the baseline is per-user state and must not be shippable, so a stray
+# orbit/data/tool_hashes.json (or any new data/*.json) is not included by accident.
+orbit = [
+    "reporting/templates/cover.txt.j2",
+    "reporting/templates/posture.txt.j2",
+    "data/cve_mappings.json",
+    "data/tool_hashes.template.json",
+    "data/fixtures/maester_sample.json",
+    "data/fixtures/scubagear_sample.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["windows_native: runs only on native Windows (skipped elsewhere); the Windows CI job requires it"]
 
 [tool.ruff]
 line-length = 100

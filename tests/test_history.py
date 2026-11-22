@@ -1,9 +1,10 @@
 from pathlib import Path
 
+from orbit.config import FIXTURES_DIR
 from orbit.core import history
 from orbit.reporting import parser
 
-FIX = Path(__file__).parent / "fixtures"
+FIX = FIXTURES_DIR
 
 
 def _findings():

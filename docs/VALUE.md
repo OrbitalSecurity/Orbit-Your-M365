@@ -98,7 +98,7 @@ At a day rate of £400–£600, that's **£6,000–£18,600 of billable time** f
 
 Unlike SaaS compliance tools that process your tenant data in the cloud, ORBIT:
 
-- Runs entirely client-side — no data leaves your machine.
+- Runs client-side with no telemetry. Your data stays on your machine unless you explicitly enable SMTP email, which sends the summary and PDF report to the mail server (which may be a hosted provider) and recipients you choose.
 - Uses open-source tools from CISA and the security research community.
 - Has no subscription fee, no per-seat cost, and no data processing agreements to negotiate.
 - Can be audited: the source code is fully open.

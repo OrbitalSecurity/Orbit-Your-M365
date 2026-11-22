@@ -4,9 +4,9 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-1.5.0-purple?style=flat-square" alt="Version 1.5.0">
+  <img src="https://img.shields.io/badge/version-1.5.1-purple?style=flat-square" alt="Version 1.5.1">
   <img src="https://img.shields.io/badge/telemetry-none-brightgreen?style=flat-square" alt="No telemetry">
-  <img src="https://img.shields.io/badge/client--side-100%25-brightgreen?style=flat-square" alt="Client-side">
+  <img src="https://img.shields.io/badge/runs-locally-brightgreen?style=flat-square" alt="Runs locally">
 </p>
 
 ```
@@ -20,10 +20,10 @@
   Office 365 Risk & Baseline Intelligence Toolkit
   Author  : Reece Gabriel Dickson
   Role    : Independent Cybersecurity Research Analyst
-  Version : v1.5.0
+  Version : v1.5.1
 ```
 
-ORBIT is a **terminal application** with an animated TUI that orchestrates leading M365 security auditing tools, manages their credentials securely, runs them, normalises and scores every finding, and writes a **PDF / DOCX executive summary report** — all without your data ever leaving your machine.
+ORBIT is a **terminal application** with an animated TUI that orchestrates leading M365 security auditing tools, manages their credentials securely, runs them, normalises and scores every finding, and writes a **PDF / DOCX executive summary report** — with no telemetry and no ORBIT-operated server. Your tenant data, credentials and findings stay on your machine unless you configure and enable SMTP email delivery of the report (see [Security and Privacy](#security-and-privacy)).
 
 What normally takes a skilled analyst **4–8 hours** of manual portal work and report-writing, ORBIT compresses to **10–15 minutes** of hands-on time.
 
@@ -50,16 +50,16 @@ What normally takes a skilled analyst **4–8 hours** of manual portal work and 
 
 ## What ORBIT Does
 
-1. **Pre-flight checks** — before any run, verifies admin rights, PowerShell version, OPA binary, tool installs, credentials, and output folder writability. Local only — no network calls.
+1. **Pre-flight checks** — before any run, verifies admin rights, PowerShell version, OPA binary, tool installs, credentials, and output folder writability. Local only — no network calls from the pre-flight checks.
 2. **Stores credentials securely** — Tenant ID, App ID, and client secrets go into your OS keychain (Windows Credential Manager / macOS Keychain / libsecret). Never written in plaintext. Never in process arguments visible to `ps`.
-3. **Checks tool integrity** — SHA-256 hash check against a local manifest that you record, before any tool is launched. It detects change; it is not proof of authenticity (see [what it protects against](#what-the-check-protects-against)). A mismatch or unverified tool is a hard stop. **You must populate `data/tool_hashes.json` after installing tools** — see [Tool integrity setup](#tool-integrity-setup).
+3. **Checks tool integrity** — SHA-256 hash check against a local manifest that you record, before any tool is launched. It detects change; it is not proof of authenticity (see [what it protects against](#what-the-check-protects-against)). A mismatch or unverified tool is a hard stop. **You must record a baseline in `~/.orbit/tool_hashes.json` (`ORBIT_HOME`) with `orbit-generate-hashes` after installing tools** — see [Tool integrity setup](#tool-integrity-setup).
 4. **Installs / updates tools** — one screen to install ScubaGear, Maester, Monkey365, and Hawk with per-tool status, version, Install/Update/Remove buttons. ROADtools install and update are disabled.
 5. **Runs selected tools** — async subprocess launcher with live streaming logs and per-tool progress. Tools are stopped cleanly on cancel.
 6. **Parses and normalises output** — JSON and CSV from ScubaGear, Maester, and Monkey365 unified into a single `Finding` model with severity, control ID, CVE references, and remediation text.
 7. **Scores findings** — a weighted risk matrix (Critical ×10 / High ×7 / Medium ×4 / Low ×1) produces an overall posture score and ranked top findings.
 8. **Findings viewer** — sortable/filterable DataTable with severity colour coding; detail modal per finding; `r` for prioritised remediation action plan; `/` to search; run comparison delta.
 9. **Generates reports** — PDF or DOCX technical report with cover, posture bar, top findings with CVE + remediation, full findings table. Plus a separate **Executive Summary PDF** (on demand) for non-technical stakeholders: 2-page plain-English report with risk gauge, top findings, and a written summary paragraph.
-10. **Optionally encrypts output** — Fernet (AES-256) with a PBKDF2 passphrase. An unencrypted copy can be saved as well.
+10. **Optionally encrypts output** — Fernet (AES-128-CBC with HMAC-SHA256) with a PBKDF2 passphrase. An unencrypted copy can be saved as well.
 11. **History and trend** — run history stored locally; home screen shows last run date, score delta (↑/↓), and ASCII sparkline trend across last 8 real runs.
 12. **Config profiles** — export/import settings as a portable JSON file (`--export-profile`, `--import-profile`) for moving between machines or sharing with a team.
 
@@ -110,7 +110,7 @@ python launch.py --dry-run
 python launch.py
 ```
 
-> **Before your first real run:** you must install tools via the Installer screen, then run `python scripts/generate_hashes.py` to record their SHA-256 hashes. ORBIT will block any unverified tool. See [Tool integrity setup](#tool-integrity-setup).
+> **Before your first real run:** you must install tools via the Installer screen, then run `orbit-generate-hashes` to record their SHA-256 hashes in `~/.orbit/tool_hashes.json`. ORBIT will block any unverified tool. See [Tool integrity setup](#tool-integrity-setup).
 
 ---
 
@@ -119,6 +119,8 @@ python launch.py
 ### Windows 10/11 (Primary Platform)
 
 > **ScubaGear requires Windows.** All other tools work cross-platform.
+>
+> **Encrypted archives cannot be restored on Windows.** ORBIT can create an encrypted `.orbit.zip` there, but its extraction fails closed on Windows. If you need to read results on Windows, keep the unencrypted copy; otherwise restore the archive on macOS or Linux.
 
 1. Install **Python 3.10+** from [python.org](https://www.python.org/downloads/) — tick "Add to PATH".
 2. Install **PowerShell 7**: `winget install Microsoft.PowerShell`
@@ -159,7 +161,7 @@ python orbit.py --dry-run
 ### Verify
 
 ```bash
-pytest tests/ -v          # 77 tests, all should pass
+pytest tests/ -v          # the full suite should pass
 python orbit.py --help
 ```
 
@@ -181,7 +183,7 @@ The manifest and the runtime files belong to your account, so the check **cannot
 
 ### Why you need to do this
 
-The hash manifest (`data/tool_hashes.json`) records the expected file hashes for each tool at each version. Until it contains an entry for your installed version, ORBIT treats the tool as **unverified** and blocks the run. The pre-flight screen will show that tool and version as ✗ BLOCKED and the Run screen will skip the tool with "BLOCKED: integrity unverified".
+The hash manifest (`~/.orbit/tool_hashes.json`, or `tool_hashes.json` in `ORBIT_HOME` if you set it) is your own trust state, kept outside the installed package so that upgrades and reinstalls cannot overwrite it and pip never owns it. It records the expected file hashes for each tool at each version. Until it contains an entry for your installed version, ORBIT treats the tool as **unverified** and blocks the run. The pre-flight screen will show that tool and version as ✗ BLOCKED and the Run screen will skip the tool with "BLOCKED: integrity unverified".
 
 This is intentional: running an unverified tool against a production tenant is a security risk.
 
@@ -189,39 +191,51 @@ This is intentional: running an unverified tool against a production tenant is a
 
 **1. Install your tools** (via ORBIT's Installer screen or manually — see [Installation](#installation))
 
-**2. Run the hash generator** from the project root, with your venv active:
+**2. Run the hash generator** (installed with ORBIT, from the same environment as `orbit`):
 
 ```bash
-python scripts/generate_hashes.py
+orbit-generate-hashes
 ```
 
-This scans your installed PowerShell modules (and ROADtools if present, which stays dry-run only), computes SHA-256 hashes for every file, and writes them into `data/tool_hashes.json`. Output looks like:
+From a source checkout, `python scripts/generate_hashes.py` is the same command. This scans your installed PowerShell modules (and ROADtools if present, which stays dry-run only), computes SHA-256 hashes for every file, and writes them into `~/.orbit/tool_hashes.json`. The first run creates that file (and a private `~/.orbit`) from the package's empty template; nothing is ever written into the installed package. Output looks like:
 
 ```
 Scanning ScubaGear v1.4.0 ...  ✓ 312 files hashed
 Scanning Maester v0.4.3 ...    ✓ 89 files hashed
 Scanning Monkey365 v1.0.9 ...  ✓ 204 files hashed
 Scanning Hawk v3.2.1 ...       ✓ 57 files hashed
-Manifest written to data/tool_hashes.json
+Manifest written to /home/you/.orbit/tool_hashes.json
 ```
 
 **3. Re-run after any tool update**
 
-If you update a tool (via the Installer screen or manually), re-run `generate_hashes.py`. ORBIT will block the updated tool until the manifest is refreshed — this is by design.
+If you update a tool (via the Installer screen or manually), re-run `orbit-generate-hashes`. ORBIT will block the updated tool until the manifest is refreshed — this is by design.
 
 **4. Verify in pre-flight**
 
 Launch ORBIT and open the **Pre-flight** screen. Each selected tool has its own "<tool> <version> integrity" row, which is ✓ green only if that tool would pass the gate used at launch.
 
+### Upgrading from an older layout
+
+Releases up to 1.5.0 kept the baseline in `data/tool_hashes.json` inside the source checkout. ORBIT **never imports it**: hashes recorded for a different install are not trusted just because they are on disk. Until you run `orbit-generate-hashes`, a real run is blocked with "no integrity baseline has been recorded", and the command prints a note naming any older file it ignored. Record a fresh baseline against installations you trust; your older file is left exactly as it was.
+
+The baseline file is schema 2 and is recorded for your account (and, on Windows, your computer). A file in the older format (schema 1, or no schema), unmarked or malformed content, or the packaged template copied by hand is **always refused wherever it is stored**. A valid, bound schema-2 baseline recorded for another user or computer is normally refused too, because its identifiers differ (see below). All of these are refused even when copied straight into `ORBIT_HOME/tool_hashes.json`; a real run is blocked with a message that says which case it is. `orbit-generate-hashes` never converts or overwrites such a file. Move it aside yourself (`mv ~/.orbit/tool_hashes.json ~/.orbit/tool_hashes.json.v1`, or on Windows `Move-Item "$env:USERPROFILE\.orbit\tool_hashes.json" "$env:USERPROFILE\.orbit\tool_hashes.json.v1"`) and run `orbit-generate-hashes` again to record a new baseline against installations you trust.
+
+If you set `ORBIT_HOME`, the baseline is `$ORBIT_HOME/tool_hashes.json`. The same location rules apply when ORBIT **reads** the baseline for the real-run gate and when `orbit-generate-hashes` **writes** it, so a location that is refused for one is refused for both (a real run is then blocked as "baseline is not trusted"):
+
+- On macOS and Linux, `ORBIT_HOME` must be owned by you and not writable by group or others, and so must every directory above it (a root-owned sticky directory such as `/tmp` is fine above it). `tool_hashes.json` and its `.lock` must be regular files of yours with no group/other write bit and no extra hard links. Symbolic links are refused for `ORBIT_HOME`, for any directory you control above it, and for the manifest and lock. If the check fails, run `chmod go-w` on the directory it names, or point `ORBIT_HOME` somewhere private.
+- `ORBIT_HOME` may not be, or resolve into (by name, symbolic link or identity), ORBIT's installed or source package, `orbit/data`, the repository's legacy `data/` directory or another directory where an older layout kept a baseline. Nothing is read from, seeded into or written to such a place, and an older baseline is never trusted through an alias.
+- **Windows:** ORBIT cannot read folder owners or ACLs with the standard library, and POSIX permission bits do not describe them, so it does not claim to check them. The conservative rule is that `ORBIT_HOME` must be a folder inside your user profile (whose default ACL excludes other standard users) with no link or junction below the profile; anything else is refused. A profile whose permissions were widened is not detected, and these checks are path-based rather than race-free, so treat the Windows protection against other principals as the profile's default ACL and nothing more.
+
 ### Sharing across machines
 
-The manifest is plain JSON and safe to commit to a private repo or share with a team. **Only share it over a trusted channel** — a manifest received from an untrusted source defeats the point.
+The manifest is plain JSON, but it is a per-user statement, not something to share. The binding is to the effective user ID on macOS and Linux (not to the machine), and on Windows to the current token SID plus the MachineGuid. A baseline copied to another account or computer is normally rejected because those identifiers differ, but a cloned environment that keeps them (a copied VM or image, or the same UID on another POSIX host) may still match. It is a guard against accidental cross-use, not authentication, and not a defence against malware running as the same user, which can compute the binding itself. Windows identity retrieval (token SID, MachineGuid) is unverified until the native Windows CI job has run. On another account or computer, install and review the tools there and run `orbit-generate-hashes`; never copy a baseline in. A manifest received from an untrusted source defeats the point.
 
 ### No override
 
 There is no way to run a tool that failed verification, in the TUI or with `--headless`. For evaluation without installed tools, use `--dry-run`.
 
-`generate_hashes.py` will not replace an existing baseline whose files differ for the same version. Find out why the files changed, then delete that version's entry by hand.
+`orbit-generate-hashes` will not replace an existing baseline whose files differ for the same version. Find out why the files changed, then delete that version's entry by hand.
 
 ### What the check covers
 
@@ -332,7 +346,7 @@ View the generated summary and open the output folder. The ORBIT summary report 
 2. Overall posture score (0–100) with severity breakdown
 3. Top 2–3 critical/high findings with CVE references and remediation steps
 4. Full findings table: ID, severity, title, source tool, control reference
-5. Footer: "Generated by ORBIT v1.0.0 — All processing client-side. No data transmitted."
+5. Footer: "Generated by ORBIT v1.5.1 — No telemetry. Report data is sent by ORBIT only if you enable SMTP email."
 
 ---
 
@@ -371,7 +385,7 @@ See [docs/SCORING.md](docs/SCORING.md) for full details.
 
 **Posture score** = `(passed_controls / total_controls) × 100`
 
-CVE references are looked up from a bundled static JSON (`data/cve_mappings.json`) keyed on M365 control IDs. No external network calls are made for CVE data.
+CVE references are looked up from a bundled static JSON (`orbit/data/cve_mappings.json`) keyed on M365 control IDs. No network calls are made for CVE data.
 
 ---
 
@@ -381,20 +395,21 @@ CVE references are looked up from a bundled static JSON (`data/cve_mappings.json
 orbit-m365/
 ├── orbit.py                  ← entry point
 ├── orbit/
-│   ├── config.py             ← AUTHOR, VERSION, YEAR constants
+│   ├── config.py             ← AUTHOR, VERSION, YEAR constants, bundled-data paths
 │   ├── tui/                  ← Textual screens and widgets
 │   ├── core/
 │   │   ├── secrets.py        ← keyring + Fernet fallback
 │   │   ├── hash_checker.py   ← SHA-256 integrity gate
+│   │   ├── baseline.py       ← orbit-generate-hashes (records ~/.orbit/tool_hashes.json)
 │   │   ├── runner.py         ← async subprocess launcher
 │   │   └── tools/            ← one adapter per tool
 │   ├── reporting/            ← parser, scorer, PDF, DOCX
 │   └── security/             ← folder encryption
-├── data/
+├── orbit/data/
 │   ├── cve_mappings.json     ← bundled CVE reference (offline)
-│   └── tool_hashes.json      ← tool hashes you recorded
+│   ├── tool_hashes.template.json ← empty template that seeds ~/.orbit/tool_hashes.json (never a baseline)
+│   └── fixtures/             ← anonymised sample tool output for --dry-run
 ├── tests/
-│   └── fixtures/             ← anonymised sample tool output
 └── docs/
 ```
 
@@ -407,12 +422,14 @@ orbit-m365/
 See [docs/PRIVACY.md](docs/PRIVACY.md) for the full statement.
 
 **Short version:**
-- ORBIT makes **no outbound network connections** of its own.
+- ORBIT sends nothing on its own except in two cases, and has **no telemetry or analytics**:
+  - **Optional GitHub release check** — a single HTTPS request to `api.github.com` when the home screen opens in a real (non-dry-run) session. It sends no tenant, credential, finding or user data; GitHub sees your IP address. Set `update_check = false` under `[notifications]` in `~/.orbit/config.toml` to turn it off (there is no in-app toggle yet).
+  - **SMTP email you configure and enable** — a test message from the Email screen, and, only when you tick *Email results when complete* on a real run, an email, sent to the SMTP server you configure (which may be a hosted provider) and on to the recipients you choose, containing assessment details (client name, posture score, severity counts, top findings with control IDs and remediation steps) and the PDF summary report as an attachment. Nothing is emailed unless SMTP is configured and enabled; dry-run never sends email. Keep *Use TLS* on.
+- The tools ORBIT launches (Microsoft 365 API calls) and the installer (PowerShell Gallery, OPA download) make their own network connections.
 - Secrets are stored in your **OS keychain** (Windows Credential Manager / macOS Keychain / libsecret). The Fernet-encrypted fallback (`~/.orbit/secrets.enc`) is used only if no keychain is available.
 - Secrets are **never** written to plaintext files, logs, or process arguments.
-- There is **no telemetry, analytics, or update checking**.
-- All CVE lookups use a **bundled offline JSON file**.
-- Output can be **Fernet-encrypted** (AES-128-CBC + HMAC-SHA256) at rest.
+- All CVE lookups use a **bundled offline JSON file** shipped inside the package.
+- Output can be **Fernet-encrypted** (AES-128-CBC with HMAC-SHA256; PBKDF2 passphrase derivation) at rest.
 
 ---
 

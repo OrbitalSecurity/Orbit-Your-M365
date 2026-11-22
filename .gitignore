@@ -18,7 +18,9 @@ dist/
 *.egg
 MANIFEST
 
-# Local lock taken by scripts/generate_hashes.py
+# A baseline and its lock belong in ORBIT_HOME, never in the tree
+orbit/data/tool_hashes.json
+orbit/data/tool_hashes.json.lock
 data/tool_hashes.json.lock
 
 # Test and lint caches

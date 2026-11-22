@@ -28,7 +28,7 @@ body:
     attributes:
       label: Does this respect ORBIT's core principles?
       options:
-        - label: No outbound network connections from ORBIT itself
+        - label: No new outbound network connections from ORBIT itself (the only existing ones are the optional GitHub release check and user-enabled SMTP email)
           required: true
         - label: No telemetry or analytics
           required: true

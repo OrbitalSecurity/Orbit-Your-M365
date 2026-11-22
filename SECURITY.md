@@ -27,7 +27,7 @@ I will acknowledge receipt within 48 hours and aim to release a fix within 14 da
 
 ## Scope
 
-ORBIT itself does not make network connections — vulnerabilities in the tools it launches (ScubaGear, Maester, etc.) should be reported to their respective maintainers:
+ORBIT's own network requests are an optional GitHub release check and SMTP email that you configure and enable (to the SMTP server and recipients you select; ORBIT submits nothing to the author automatically); the integrity baseline is your own file at `~/.orbit/tool_hashes.json` (`ORBIT_HOME`), recorded with `orbit-generate-hashes`; it runs no server and listens on no port. Vulnerabilities in the tools it launches (ScubaGear, Maester, etc.) should be reported to their respective maintainers:
 
 | Tool | Report to |
 |------|-----------|

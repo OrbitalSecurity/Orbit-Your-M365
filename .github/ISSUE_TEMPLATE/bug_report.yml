@@ -6,12 +6,13 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Please fill in as much detail as you can.
+        Do not paste tenant data, assessment findings, reports or SMTP settings into this issue.
 
   - type: input
     id: version
     attributes:
       label: ORBIT version
-      placeholder: "v1.0.0"
+      placeholder: "v1.5.1 (run `orbit --version`)"
     validations:
       required: true
 

@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 import pytest
 
+from orbit.config import FIXTURES_DIR
 from orbit.core import emailer
 from orbit.reporting import parser
 from orbit.reporting.context import ReportContext
 from orbit.reporting.pdf_report import generate_pdf
 
-FIX = Path(__file__).parent / "fixtures"
+FIX = FIXTURES_DIR
 
 
 @pytest.fixture()
