@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -13,6 +14,7 @@ from orbit.security.encryption import (
 
 FAST = 1000  # PBKDF2 iterations for fast tests
 SECRET = "s3cr3t-VALUE-xyz"
+extracts = pytest.mark.skipif(sys.platform == "win32", reason="extraction fails closed on Windows")
 
 
 def test_bytes_round_trip():
@@ -66,6 +68,7 @@ def test_keyring_path(monkeypatch):
     assert store.load("hawk") == {"admin_upn": "x@y.z"}
 
 
+@extracts
 def test_encrypt_folder_round_trip(tmp_path):
     src = tmp_path / "out"
     (src / "sub").mkdir(parents=True)
@@ -77,6 +80,7 @@ def test_encrypt_folder_round_trip(tmp_path):
     assert (dest / "sub" / "a.txt").read_text() == "report data"
 
 
+@extracts
 def test_zip_slip_is_blocked(tmp_path):
     """Zip entries with path traversal sequences must not escape out_dir."""
     import io

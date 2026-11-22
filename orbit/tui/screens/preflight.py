@@ -4,17 +4,21 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Static
+from textual.worker import get_current_worker
 
 from orbit.core.admin_check import is_elevated
-from orbit.core.hash_checker import load_manifest
+from orbit.core.hash_checker import HashResult, launch_binding, verify_tool
 from orbit.core.platform_check import check_platform
+from orbit.core.runner import token_location_error
 from orbit.core.secrets import SecretStore
-from orbit.core.tools import all_tools
+from orbit.core.tools import Tool, all_tools
+from orbit.core.workspace import Workspace
 
 
 _NETWORK_NOTE = (
@@ -35,12 +39,53 @@ def _check_output_writable(base_dir: Path) -> tuple[bool, str]:
         return False, str(e)
 
 
-def run_preflight(state) -> list[tuple[bool, str, str]]:
+def _selected_tools(state) -> list:
+    tools = [t for t in all_tools() if t.name in (state.selected or set())]
+    if not tools and state.dry_run:
+        tools = [t for t in all_tools() if t.fixture]
+    return tools
+
+
+def _dry_run_preflight(state) -> list[tuple[bool | None, str, str]]:
+    """Fixture-only: no PowerShell, installation, manifest or credential store is looked at."""
+    results: list[tuple[bool | None, str, str]] = [
+        (True, "Mode", "dry-run — fixture playback; real tools and credentials are not probed"),
+    ]
+    results += [(True, t.display, "dry-run mode (fixture data)") for t in _selected_tools(state)]
+    ok, detail = _check_output_writable(state.output.base_dir)
+    results.append((ok, "Output folder writable", detail))
+    results.append((None, "Tool integrity", "not checked in dry-run — nothing real is launched"))
+    return results
+
+
+def _launch_problem(tool: Tool, check: HashResult, base_dir: Path) -> str:
+    """Why a launch would be blocked now, or ''. The snapshot is released however this ends."""
+    problem = ""
+    try:
+        binding, problem = launch_binding([check])
+        if binding:
+            if binding.tool != tool.name:
+                problem = "the binding is for another tool"
+            else:
+                binding.verify()  # the same complete re-check as immediately before a launch
+                problem = token_location_error(tool, binding, base_dir)
+    except Exception as exc:
+        problem = f"re-check failed: {exc}"
+    finally:
+        if check.binding and not check.binding.release():
+            problem = problem or "the private snapshot could not be removed"
+    return problem
+
+
+def run_preflight(state) -> list[tuple[bool | None, str, str]]:
     """
     Returns list of (passed, label, detail) tuples.
     All checks are local — no network calls.
     """
-    results: list[tuple[bool, str, str]] = []
+    if state.dry_run:
+        return _dry_run_preflight(state)
+
+    results: list[tuple[bool | None, str, str]] = []
     plat = check_platform()
 
     # 1. Elevation
@@ -54,63 +99,56 @@ def run_preflight(state) -> list[tuple[bool, str, str]]:
     # 2. PowerShell 7
     pw_ok = plat.pwsh7
     pw_ver = ".".join(map(str, plat.pwsh_version)) if plat.pwsh_version else "not found"
-    results.append((pw_ok, "PowerShell 7", pw_ver if pw_ok else f"{pw_ver} — install pwsh 7+"))
+    why = plat.pwsh_error or f"{pw_ver} — install pwsh 7+"
+    results.append((pw_ok, "PowerShell 7", pw_ver if pw_ok else why))
 
     # 3. OPA binary
     opa = bool(shutil.which("opa"))
     results.append((opa, "OPA binary", shutil.which("opa") or "not on PATH — required by ScubaGear"))
 
-    # 4. Selected tools installed
-    selected_names = state.selected or set()
-    tools = [t for t in all_tools() if t.name in selected_names]
-    if not tools and state.dry_run:
-        tools = [t for t in all_tools() if t.fixture]
+    # 4. Each selected tool: installed, and ready to pass the same gate as a run
+    tools = _selected_tools(state)
     if not tools:
         results.append((False, "Tools selected", "No tools selected — use Tools screen"))
-    else:
+    with Workspace() as workspace:
         for t in tools:
-            if not t.compatible(plat):
-                results.append((False, f"{t.display} compatible", f"Not compatible with {plat.os_name}"))
+            if t.real_run_block:
+                results.append((False, f"{t.display} real run", f"BLOCKED — {t.real_run_block}"))
                 continue
-            ver = t.installed_version()
-            if state.dry_run:
-                results.append((True, f"{t.display}", "dry-run mode (fixture data)"))
-            elif ver:
-                results.append((True, f"{t.display}", f"v{ver}"))
+            if not t.compatible(plat):
+                why = plat.pwsh_error if t.needs_pwsh and plat.os_name in t.supported_os else ""
+                results.append((False, f"{t.display} compatible",
+                                why or f"Not compatible with {plat.os_name}"))
+                results.append((False, f"{t.display} integrity", "BLOCKED — cannot be verified"))
+                continue
+            check = verify_tool(t, workspace)
+            message = _launch_problem(t, check, Path(state.output.base_dir))
+            if check.version:
+                results.append((True, t.display, f"v{check.version}"))
             else:
-                results.append((False, f"{t.display}", "not installed — use Install screen"))
+                results.append((False, t.display,
+                                f"not usable: {check.reason or 'not installed'}"))
+            label = f"{t.display} {check.version or '(unknown version)'} integrity"
+            if message:
+                results.append((False, label, f"BLOCKED — {message}"))
+            else:
+                results.append((True, label, "ready — files match the manifest; "
+                                             "checked again at launch"))
 
-    # 5. Credentials loaded (skip in dry-run)
-    if not state.dry_run:
-        try:
-            store = SecretStore(state.passphrase)
-            for t in tools:
-                creds = store.load(t.name)
-                has = bool(creds and any(creds.values()))
-                results.append((has, f"{t.display} credentials", "loaded" if has else "missing — use Credentials screen"))
-        except Exception as e:
-            results.append((False, "Credentials", f"Could not read credential store: {e}"))
+    # 5. Credentials loaded
+    runnable = [t for t in tools if not t.real_run_block]  # never read credentials for the rest
+    try:
+        store = SecretStore(state.passphrase) if runnable else None
+        for t in runnable:
+            creds = store.load(t.name)
+            has = bool(creds and any(creds.values()))
+            results.append((has, f"{t.display} credentials", "loaded" if has else "missing — use Credentials screen"))
+    except Exception as e:
+        results.append((False, "Credentials", f"Could not read credential store: {e}"))
 
     # 6. Output folder writable
     ok, detail = _check_output_writable(state.output.base_dir)
     results.append((ok, "Output folder writable", detail))
-
-    # 7. Tool integrity manifest
-    try:
-        manifest = load_manifest()
-        tools_section = manifest.get("tools", {})
-        populated = any(
-            v.get("versions")
-            for v in tools_section.values()
-        )
-        if populated:
-            results.append((True, "Tool integrity manifest", "populated — hashes will be verified"))
-        else:
-            # Treat as a non-blocking warning: use None to signal amber
-            results.append((None, "Tool integrity manifest",
-                            "NOT CONFIGURED — hashes unverified; populate data/tool_hashes.json"))
-    except Exception as e:
-        results.append((False, "Tool integrity manifest", f"Could not read manifest: {e}"))
 
     return results
 
@@ -143,30 +181,36 @@ class PreflightScreen(Screen):
             yield Button("▶ Proceed to Run", id="proceed")
         yield Footer()
 
-    def on_mount(self) -> None:
+    def on_screen_resume(self) -> None:
+        # every visit, because the screen is cached and the selection may have changed
+        self.query_one("#checks", Vertical).remove_children()
         self._run_checks()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _run_checks(self) -> None:
+        worker = get_current_worker()
         results = run_preflight(self.app.state)
+        if worker.is_cancelled:  # superseded by a check of a newer selection
+            return
 
         def _render():
+            if worker.is_cancelled:
+                return
             container = self.query_one("#checks", Vertical)
             container.remove_children()
             for ok, label, detail in results:
                 if ok is True:
-                    icon  = "[green]✓[/green]"
+                    icon  = ("✓", "green")
                     style = "#2a6070"
                 elif ok is None:
-                    icon  = "[yellow]⚠[/yellow]"
+                    icon  = ("⚠", "yellow")
                     style = "#b07800"
                 else:
-                    icon  = "[red]✗[/red]"
+                    icon  = ("✗", "red")
                     style = "#cc4444"
-                row = Static(
-                    f"{icon}  [{style}]{label}[/{style}]  [dim]{detail}[/dim]",
-                    classes="chk-row"
-                )
+                # not markup: details carry file names and paths taken from disk
+                row = Static(Text.assemble(icon, "  ", (label, style), "  ", (detail, "dim")),
+                             classes="chk-row")
                 container.mount(row)
 
         self.app.call_from_thread(_render)

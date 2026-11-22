@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _orbit(tmp_path, *args):
-    env = {**os.environ, "ORBIT_HOME": str(tmp_path / "home")}
+def _orbit(tmp_path, *args, **env_over):
+    env = {**os.environ, "ORBIT_HOME": str(tmp_path / "home"), **env_over}
     return subprocess.run([sys.executable, str(ROOT / "orbit.py"), *args], cwd=tmp_path, env=env,
                           capture_output=True, text=True, timeout=120)
 
@@ -33,5 +33,10 @@ def test_tools_flag_and_unknown_tool(tmp_path):
 
 
 def test_failing_tool_exits_1(tmp_path):
-    r = _orbit(tmp_path, "--headless", "--tools", "hawk")  # real run, no pwsh/module/creds
+    # empty PATH: a developer's or CI runner's real pwsh / Hawk can never be launched
+    r = _orbit(tmp_path, "--headless", "--tools", "hawk", PATH=str(tmp_path))
     assert r.returncode == 1
+    data = json.loads(r.stdout)
+    assert data["blocked_tools"] == {"hawk": "integrity unverified"}
+    assert not {"score", "total_controls", "top_findings", "output_dir"} & data.keys()
+    assert "BLOCKED" in r.stderr and not (tmp_path / "home" / "history.json").exists()

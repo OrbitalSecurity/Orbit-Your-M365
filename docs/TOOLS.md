@@ -1,6 +1,6 @@
 # Supported Tools — ORBIT
 
-ORBIT integrates five independent open-source M365 security tools. It calls each through its published command-line interface and does not modify or redistribute any of them.
+ORBIT integrates four independent open-source M365 security tools for real runs and calls each through its published command-line interface. A fifth, ROADtools, is dry-run only and is never launched. ORBIT does not modify or redistribute any of them.
 
 ---
 
@@ -108,18 +108,15 @@ ORBIT's Installer screen runs `Install-Module -Name monkey365`.
 **PyPI:** https://pypi.org/project/roadrecon/  
 **Author blog:** https://dirkjanm.io/
 
+> **ROADtools production execution is disabled** pending memory-only or other non-plaintext authentication; only fixture-based dry-run is supported. ORBIT does not install, update or launch ROADtools. Its dry-run starts no process and, as no ROADtools fixture is bundled, produces no ROADtools data.
+
 ### What it checks
-ROADtools is an Entra ID (Azure AD) exploration and enumeration framework. `roadrecon` collects all readable directory data — users, groups, roles, applications, service principals, OAuth2 permissions, conditional access policies — and stores it in a local SQLite database for offline analysis.
+ROADtools is an Entra ID (Azure AD) exploration and enumeration framework. Used on its own, `roadrecon` collects all readable directory data — users, groups, roles, applications, service principals, OAuth2 permissions, conditional access policies — and stores it in a local SQLite database for offline analysis.
 
-ROADtools is primarily a research and investigation tool. ORBIT launches it, collects its output, and stores the results — it is not scored in the current ORBIT posture matrix but provides valuable investigation data.
+ROADtools is primarily a research and investigation tool. ORBIT does not collect this data: real runs are blocked before credentials are read or a process starts, and recording an integrity baseline does not change that.
 
-### Platform requirements
-- Python 3.8+, any OS
-- Any user account with sign-in capability; reads what that account can read
-- Device-code flow supported (no app registration required for basic use)
-
-### Install via ORBIT
-ORBIT's Installer screen runs `pip install roadrecon`.
+### Requirements in ORBIT
+None. Dry-run needs no ROADtools installation, account or credentials.
 
 ---
 
@@ -175,7 +172,7 @@ These tools are not integrated into ORBIT but are referenced in documentation an
 | ScubaGear | Global Reader + Exchange/Teams/SP read roles | For interactive consent; can use app-only |
 | Maester | Graph read scopes (consented app or Global Reader) | For interactive consent |
 | Monkey365 | App registration with Graph/Exchange read, or delegated admin | No (with correct app permissions) |
-| ROADtools | Any user with sign-in capability | No |
+| ROADtools | None: real runs are disabled | Not applicable |
 | Hawk | Exchange/Entra read roles | Recommended for complete collection |
 
 > Always verify the current permission requirements in each tool's official README — they may change between releases.
@@ -189,5 +186,5 @@ These tools are not integrated into ORBIT but are referenced in documentation an
 | ScubaGear | ✓ JSON (`ScubaResults.json`) | ✓ | Full finding model |
 | Maester | ✓ JSON report | ✓ | Full finding model |
 | Monkey365 | ✓ JSON / CSV (best-effort) | ✓ | Field mapping may vary by version |
-| ROADtools | Raw output preserved | ✗ | Investigation data; not scored |
+| ROADtools | None: dry-run only | ✗ | Real runs are disabled; no fixture is bundled |
 | Hawk | Raw output preserved | ✗ | Forensic collection; not scored |

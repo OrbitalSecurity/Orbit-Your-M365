@@ -18,6 +18,9 @@ dist/
 *.egg
 MANIFEST
 
+# Local lock taken by scripts/generate_hashes.py
+data/tool_hashes.json.lock
+
 # Test and lint caches
 .pytest_cache/
 .mypy_cache/

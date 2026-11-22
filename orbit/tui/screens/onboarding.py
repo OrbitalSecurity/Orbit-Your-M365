@@ -35,13 +35,18 @@ def has_saved_credentials() -> bool:
         return False
 
 
-def should_show() -> bool:
-    """Show wizard whenever credentials are missing — not just on first run."""
+def should_show(dry_run: bool = False) -> bool:
+    """Show wizard whenever credentials are missing — not just on first run.
+
+    Dry-run never looks at a credential store, so there it depends on the first-run flag alone.
+    """
+    if dry_run:
+        return bool(config_store.load()["app"]["first_run"])
     return not has_saved_credentials()
 
 
 def mark_done() -> None:
-    """No longer used to gate the wizard — kept for config_store compatibility."""
+    """Gates the wizard in dry-run only; a real start looks at saved credentials instead."""
     try:
         config_store.update("app", first_run=False)
     except OSError:
@@ -74,7 +79,7 @@ class OnboardingScreen(Screen):
         with Vertical(id="step-3"):
             yield Static("[bold cyan]Choose tools[/bold cyan]  [dim]Step 3 of 3[/dim]\n")
             for t in all_tools():
-                yield Checkbox(t.display, value=t.name in self.app.state.selected, id=f"wiz-{t.name}")
+                yield Checkbox(t.label, value=t.name in self.app.state.selected, id=f"wiz-{t.name}")
             with Horizontal(classes="wiz-buttons"):
                 yield Button("Continue →", id="next-3", variant="success")
                 yield Button("Skip setup →", id="skip-3")
@@ -90,6 +95,9 @@ class OnboardingScreen(Screen):
         tenant = self.query_one("#wiz-tenant", Input).value.strip()
         app_id = self.query_one("#wiz-app", Input).value.strip()
         if not (tenant or app_id):
+            return
+        if self.app.state.dry_run:
+            self.notify("Credentials are not saved in dry-run mode.", severity="warning")
             return
         from orbit.core.secrets import SecretStore
         try:

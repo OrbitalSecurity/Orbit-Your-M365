@@ -14,7 +14,7 @@ class ToolSelectScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Static("[bold cyan]Select tools to run[/bold cyan]")
         for t in all_tools():
-            yield Checkbox(t.display, value=t.name in self.app.state.selected, id=f"sel-{t.name}")
+            yield Checkbox(t.label, value=t.name in self.app.state.selected, id=f"sel-{t.name}")
         yield Footer()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:

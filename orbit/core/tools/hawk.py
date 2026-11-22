@@ -1,6 +1,12 @@
-from pathlib import Path
+from __future__ import annotations
 
-from orbit.core.tools.base import LaunchSpec, Tool, cred_env, ps_command
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from orbit.core.tools.base import LaunchSpec, Tool, cred_env
+
+if TYPE_CHECKING:
+    from orbit.core.hash_checker import Binding
 
 
 class Hawk(Tool):
@@ -11,11 +17,10 @@ class Hawk(Tool):
     package = "Hawk"
     fixture = ""
 
-    def launch_spec(self, creds: dict, out_dir: Path) -> LaunchSpec:
+    def launch_spec(self, creds: dict, out_dir: Path, binding: Binding) -> LaunchSpec:
         script = (
-            "Import-Module Hawk; "
             "Start-HawkTenantInvestigation -FilePath $env:ORBIT_OUT_DIR -SkipUpdate"
         )
         env = cred_env("HAWK", creds)
         env["ORBIT_OUT_DIR"] = str(out_dir)
-        return LaunchSpec(ps_command(script), env, out_dir)
+        return self.ps_launch(script, env, out_dir, binding)

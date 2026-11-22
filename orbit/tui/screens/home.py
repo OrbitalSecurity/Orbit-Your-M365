@@ -15,7 +15,7 @@ from rich.text import Text
 from orbit.core import config_store
 from orbit.core.admin_check import ADMIN_WARNING, is_elevated
 from orbit.core.update_check import check_latest
-from orbit.core.platform_check import check_platform
+from orbit.core.platform_check import check_platform, detect_os
 from orbit.tui.banner import AnimatedBanner
 from orbit.tui.screens.findings import FindingsScreen
 
@@ -197,10 +197,10 @@ class QuotesWidget(Widget):
         return out
 
 
-def _tool_table(tools: list) -> Table:
+def _tool_table(tools: list, dry_run: bool = False) -> Table:
     """Rich Table of tool status — renders at full widget width."""
     from orbit.core.tools.base import STATUS_GLYPH
-    plat = check_platform()
+    plat = None if dry_run else check_platform()
     t = Table.grid(expand=True, padding=(0, 2))
     t.add_column("Tool",   style="#2a5a6a", ratio=1)
     t.add_column("Status", ratio=2)
@@ -209,6 +209,12 @@ def _tool_table(tools: list) -> Table:
 
     rows = []
     for tool in tools:
+        if dry_run:
+            rows.append((f"[#4a8090]{tool.display}[/]", "[dim]not probed (dry run)[/dim]"))
+            continue
+        if tool.real_run_block:
+            rows.append((f"[#4a8090]{tool.display}[/]", "[yellow]⚠ dry-run only[/yellow]"))
+            continue
         inst = tool.installed_version() if tool.compatible(plat) else None
         st   = tool.status(plat, inst)
         ver  = f" [bright_blue]{inst}[/]" if inst else ""
@@ -250,7 +256,7 @@ class HomeScreen(Screen):
     def _refresh_dashboard(self) -> None:
         from orbit.core.tools import all_tools
         from orbit.core import history
-        tbl = _tool_table(all_tools())
+        tbl = _tool_table(all_tools(), self.app.state.dry_run)
         markup = history.last_run_markup()
         spark = history.sparkline()
         if spark:
@@ -259,14 +265,15 @@ class HomeScreen(Screen):
         self.query_one("#last-run", Static).update(markup)
 
     def on_mount(self) -> None:
-        info = check_platform()
-        pw   = ".".join(map(str, info.pwsh_version)) if info.pwsh_version else "not found"
+        dry = self.app.state.dry_run
+        if dry:
+            os_name, pw = detect_os(), "not probed (dry run)"
+        else:
+            info = check_platform()
+            os_name = info.os_name
+            pw = ".".join(map(str, info.pwsh_version)) if info.pwsh_version else "not found"
         self.query_one("#sys-info", Static).update(
-            f"[dim]OS[/dim]          [bright_blue]{info.os_name}[/]\n"
-            f"[dim]PowerShell[/dim]  [bright_blue]{escape(pw)}[/]\n"
-            f"[dim]Python[/dim]      [bright_blue]{info.python_version}[/]"
-            if hasattr(info, "python_version") else
-            f"[dim]OS[/dim]          [bright_blue]{info.os_name}[/]\n"
+            f"[dim]OS[/dim]          [bright_blue]{os_name}[/]\n"
             f"[dim]PowerShell[/dim]  [bright_blue]{escape(pw)}[/]"
         )
         if not is_elevated():
@@ -275,7 +282,7 @@ class HomeScreen(Screen):
                 f"[dim]{ADMIN_WARNING}[/dim]"
             )
         self._refresh_dashboard()
-        if config_store.load()["notifications"].get("update_check", True):
+        if not dry and config_store.load()["notifications"].get("update_check", True):
             self._check_update()
 
     @work(exclusive=True, group="update-check")

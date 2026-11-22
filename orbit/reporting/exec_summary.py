@@ -1,6 +1,7 @@
 """Executive summary PDF — single page, plain-English, for non-technical stakeholders."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -215,7 +216,10 @@ def generate_exec_summary(findings: list[Finding], out_dir: Path,
 
     # Write file
     out_dir.mkdir(parents=True, exist_ok=True)
-    slug = client_name.replace(" ", "_")[:20] if client_name != "Confidential" else "DRYRUN" if dry_run else ""
+    # Strip every character that is not alphanumeric or underscore before
+    # joining into the output path — prevents path traversal via client name.
+    _safe = re.sub(r"[^A-Za-z0-9_]", "_", client_name)[:20].strip("_")
+    slug = _safe if client_name != "Confidential" else "DRYRUN" if dry_run else ""
     date_slug = now.strftime("%Y-%m-%d")
     fname = f"ORBIT_ExecSummary_{slug}_{date_slug}.pdf".replace("__", "_")
     out = out_dir / fname

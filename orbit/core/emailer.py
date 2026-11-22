@@ -111,15 +111,23 @@ def build_message(ctx: ReportContext, pdf_path: Path, settings: EmailSettings) -
 
 def _deliver(msg, settings: EmailSettings) -> None:
     recipients = settings.to_addresses + settings.cc_addresses
+    tls_active = False
     if settings.smtp_port == 465 and settings.smtp_tls:
         server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=30,
                                   context=ssl.create_default_context())
+        tls_active = True
     else:
         server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30)
     with server:
         if settings.smtp_tls and settings.smtp_port != 465:
             server.starttls(context=ssl.create_default_context())
+            tls_active = True
         if settings.password:
+            if not tls_active:
+                raise ValueError(
+                    "Refusing to send SMTP credentials over a plaintext connection. "
+                    "Enable TLS (smtp_tls = true)."
+                )
             server.login(settings.from_address, settings.password)
         server.sendmail(settings.from_address, recipients, msg.as_string())
 

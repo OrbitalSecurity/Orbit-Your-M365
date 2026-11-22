@@ -52,8 +52,8 @@ What normally takes a skilled analyst **4–8 hours** of manual portal work and 
 
 1. **Pre-flight checks** — before any run, verifies admin rights, PowerShell version, OPA binary, tool installs, credentials, and output folder writability. Local only — no network calls.
 2. **Stores credentials securely** — Tenant ID, App ID, and client secrets go into your OS keychain (Windows Credential Manager / macOS Keychain / libsecret). Never written in plaintext. Never in process arguments visible to `ps`.
-3. **Verifies tool integrity** — SHA-256 hash check against a bundled manifest before any tool is launched. A mismatch or unverified tool is a hard stop. **You must populate `data/tool_hashes.json` after installing tools** — see [Tool integrity setup](#tool-integrity-setup).
-4. **Installs / updates tools** — one screen to install ScubaGear, Maester, Monkey365, ROADtools, and Hawk with per-tool status, version, Install/Update/Remove buttons.
+3. **Checks tool integrity** — SHA-256 hash check against a local manifest that you record, before any tool is launched. It detects change; it is not proof of authenticity (see [what it protects against](#what-the-check-protects-against)). A mismatch or unverified tool is a hard stop. **You must populate `data/tool_hashes.json` after installing tools** — see [Tool integrity setup](#tool-integrity-setup).
+4. **Installs / updates tools** — one screen to install ScubaGear, Maester, Monkey365, and Hawk with per-tool status, version, Install/Update/Remove buttons. ROADtools install and update are disabled.
 5. **Runs selected tools** — async subprocess launcher with live streaming logs and per-tool progress. Tools are stopped cleanly on cancel.
 6. **Parses and normalises output** — JSON and CSV from ScubaGear, Maester, and Monkey365 unified into a single `Finding` model with severity, control ID, CVE references, and remediation text.
 7. **Scores findings** — a weighted risk matrix (Critical ×10 / High ×7 / Medium ×4 / Low ×1) produces an overall posture score and ranked top findings.
@@ -74,8 +74,10 @@ ORBIT integrates the following independent, open-source security tools. ORBIT do
 | **ScubaGear** | CISA SCuBA baselines: Entra ID, Defender, Exchange Online, SharePoint/OneDrive, Teams, Power Platform | PowerShell | [github.com/cisagov/ScubaGear](https://github.com/cisagov/ScubaGear) |
 | **Maester** | Pester test framework: CISA SCuBA, CIS M365, ORCA, EIDSCA (280+ tests) | PowerShell | [maester.dev](https://maester.dev) · [github.com/maester365/maester](https://github.com/maester365/maester) |
 | **Monkey365** | M365, Azure, Entra ID config review against CIS benchmarks (160+ checks) | PowerShell | [github.com/silverhack/monkey365](https://github.com/silverhack/monkey365) |
-| **ROADtools** | Entra ID enumeration and offline analysis (users, roles, apps, policies) | Python | [github.com/dirkjanm/ROADtools](https://github.com/dirkjanm/ROADtools) |
+| **ROADtools** (dry-run only) | Entra ID enumeration and offline analysis (users, roles, apps, policies) | Python | [github.com/dirkjanm/ROADtools](https://github.com/dirkjanm/ROADtools) |
 | **Hawk** | Exchange Online / Entra ID forensic collection for IR and investigation | PowerShell | [github.com/T0pCyber/hawk](https://github.com/T0pCyber/hawk) |
+
+**ROADtools production execution is disabled** pending a memory-only or other non-plaintext authentication design. Its sign-in writes tokens to disk in plaintext, so a real run is blocked before credentials are read or a process starts, and recording a baseline does not change that. `--dry-run` still works.
 
 Further reading and reference tools:
 - [CISA SCuBA Project](https://www.cisa.gov/resources-tools/services/secure-cloud-business-applications-scuba-project) — the authoritative source for Microsoft 365 secure configuration baselines
@@ -141,7 +143,7 @@ pip install -e ".[dev]"
 python orbit.py --dry-run
 ```
 
-ScubaGear shows as "incompatible OS" on macOS — this is expected. Maester, Monkey365, ROADtools, and Hawk all work on macOS with PowerShell 7.
+ScubaGear shows as "incompatible OS" on macOS — this is expected. Maester, Monkey365 and Hawk are intended to work on macOS with PowerShell 7, but have not been validated with the real tools. ROADtools is dry-run only.
 
 ### Linux
 
@@ -169,11 +171,17 @@ See [docs/INSTALL.md](docs/INSTALL.md) for detailed step-by-step instructions.
 
 > **Required before any real run.** Dry-run mode is unaffected.
 
-ORBIT verifies the SHA-256 hashes of every installed tool's files before launching them. This guards against tampered or unexpected tool versions running against your tenant. The manifest ships empty — you populate it from your own trusted install.
+ORBIT compares the SHA-256 hashes of every installed tool's files with your recorded baseline before launching them. The manifest ships empty — you populate it from your own trusted install.
+
+### What the check protects against
+
+It detects accidental changes, and unauthorised changes made by other OS principals (other users or service accounts without your rights). That holds only while they cannot write to ORBIT, its Python environment or the manifest; root and administrators always can.
+
+The manifest and the runtime files belong to your account, so the check **cannot defend against a malicious process running as the same OS user**: that process can change the files and the manifest together. A match is not proof of authenticity or provenance; that would need privilege separation or an external signed trust anchor, and ORBIT has neither.
 
 ### Why you need to do this
 
-The hash manifest (`data/tool_hashes.json`) records the expected file hashes for each tool at each version. Until it contains an entry for your installed version, ORBIT treats the tool as **unverified** and blocks the run. The pre-flight screen will show a ⚠ amber warning and the Run screen will skip the tool with "BLOCKED: integrity unverified".
+The hash manifest (`data/tool_hashes.json`) records the expected file hashes for each tool at each version. Until it contains an entry for your installed version, ORBIT treats the tool as **unverified** and blocks the run. The pre-flight screen will show that tool and version as ✗ BLOCKED and the Run screen will skip the tool with "BLOCKED: integrity unverified".
 
 This is intentional: running an unverified tool against a production tenant is a security risk.
 
@@ -187,14 +195,13 @@ This is intentional: running an unverified tool against a production tenant is a
 python scripts/generate_hashes.py
 ```
 
-This scans your installed PowerShell modules and ROADtools, computes SHA-256 hashes for every file, and writes them into `data/tool_hashes.json`. Output looks like:
+This scans your installed PowerShell modules (and ROADtools if present, which stays dry-run only), computes SHA-256 hashes for every file, and writes them into `data/tool_hashes.json`. Output looks like:
 
 ```
 Scanning ScubaGear v1.4.0 ...  ✓ 312 files hashed
 Scanning Maester v0.4.3 ...    ✓ 89 files hashed
 Scanning Monkey365 v1.0.9 ...  ✓ 204 files hashed
 Scanning Hawk v3.2.1 ...       ✓ 57 files hashed
-Scanning roadrecon v0.12.3 ... ✓ 14 files hashed
 Manifest written to data/tool_hashes.json
 ```
 
@@ -204,15 +211,30 @@ If you update a tool (via the Installer screen or manually), re-run `generate_ha
 
 **4. Verify in pre-flight**
 
-Launch ORBIT and open the **Pre-flight** screen. The "Tool integrity manifest" row should show ✓ green once the manifest is populated.
+Launch ORBIT and open the **Pre-flight** screen. Each selected tool has its own "<tool> <version> integrity" row, which is ✓ green only if that tool would pass the gate used at launch.
 
 ### Sharing across machines
 
 The manifest is plain JSON and safe to commit to a private repo or share with a team. **Only share it over a trusted channel** — a manifest received from an untrusted source defeats the point.
 
-### Override (emergency use only)
+### No override
 
-If you need to run without a populated manifest (e.g. during initial evaluation), you can enable `hash_override` in the Run screen. This is logged and should never be used against a production tenant.
+There is no way to run a tool that failed verification, in the TUI or with `--headless`. For evaluation without installed tools, use `--dry-run`.
+
+`generate_hashes.py` will not replace an existing baseline whose files differ for the same version. Find out why the files changed, then delete that version's entry by hand.
+
+### What the check covers
+
+Every file under the tool's install directory: changed, missing and added files all block the run, as do links and credential-like files inside that directory. A ROADtools baseline also covers its installed dependencies, but does not enable a real ROADtools run.
+
+ORBIT runs a private read-only copy of the verified files, not the installation, and deletes it afterwards. It does **not** cover PowerShell, Python, OPA, or PowerShell modules the tool depends on, and a baseline only shows that files are unchanged since you recorded it, not that they were genuine then.
+
+A tool is also blocked when it cannot be bound safely:
+
+- exactly one absolute PowerShell 7 `pwsh` must be reachable on `PATH`;
+- the temporary directory must be private to you (on Windows, inside your user profile).
+
+These rules have been tested with fake tools on macOS, not with the real tools or on Windows. See [the audit report](docs/AUDIT_REPORT.md) for the remaining limits.
 
 ---
 
@@ -226,7 +248,7 @@ You don't need a production M365 tenant to use or test ORBIT.
 python orbit.py --dry-run
 ```
 
-Plays back fixture JSON instead of running real tools. The full TUI, scoring engine, and report generation all work. Reports are labelled `(DRY RUN)`. Use this to explore the UI, demo to a client, or run in CI.
+Plays back fixture JSON instead of running real tools. It does not read or save credentials, probe PowerShell or installed tools, install anything, send email or notifications, or check for updates. The TUI, scoring engine, and report generation all work. Reports are labelled `(DRY RUN)`. Use this to explore the UI, demo to a client, or run in CI.
 
 ### Option 2 — Microsoft 365 E5 30-day free trial
 
@@ -270,7 +292,7 @@ Enter connection details for each tool you want to use. Values are stored in you
 |------|---------------------|
 | ScubaGear / Maester | Tenant ID, App (Client) ID, Certificate thumbprint or Client Secret |
 | Monkey365 | Tenant ID, App ID, Client Secret, Subscription ID (for Azure scope) |
-| ROADtools | Client ID; device-code flow available |
+| ROADtools | Not used: real runs are disabled |
 | Hawk | Global Admin UPN |
 
 ### Screen 3 — Tools
@@ -279,19 +301,22 @@ Checkbox list to select which tools to run. Incompatible tools (wrong OS) and to
 
 ### Screen 4 — Output
 
-- Choose an output directory (a timestamped subfolder is created automatically: `output/2026-11-01_14-32/`)
+- Choose an output directory (a unique subfolder is created automatically: `output/2026-11-01_14-32-07_3f9a1c2e/`)
 - Select report formats: HTML, JSON, CSV (native tool formats), PDF, DOCX (ORBIT summary)
 - Optionally encrypt the output folder to a Fernet-encrypted ZIP with a passphrase
 - Option to save an unencrypted copy alongside the encrypted one
+- ORBIT cannot extract its encrypted archives on Windows (extraction fails closed there): keep the unencrypted copy, or restore with ORBIT's Python API on macOS or Linux
 
 ### Screen 5 — Installer
 
 Install or update any tool from its official source:
 - ScubaGear, Maester, Monkey365, Hawk → PowerShell Gallery (`Install-Module`)
-- ROADtools → PyPI (`pip install roadrecon`)
+- ROADtools → install and update are disabled, as it is dry-run only; Remove is still available
 - OPA binary → fetched by ScubaGear's own `Initialize-SCuBA`
 
-Shows current vs. latest version, install progress, and live log output.
+pip honours `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PIP_NO_INDEX`, `PIP_FIND_LINKS`, `PIP_CONFIG_FILE`, `PIP_TRUSTED_HOST`, `PIP_CERT`, `PIP_CLIENT_CERT` and `PIP_PROXY` for private-index and offline installs; other environment secrets are not passed on. pip's output is never shown or saved by ORBIT, because it can contain credentials from that configuration: you see the operation and its exit code. All installer actions are disabled in dry-run.
+
+Shows the installed version and operation status. PowerShell installer and OPA set-up output and error text are withheld in the same way, because they can quote repository credentials. PowerShell installers run non-interactively, so an operation that needs a prompt (for example to trust a repository) must be run by you in a private terminal.
 
 ### Screen 6 — Run
 
@@ -315,7 +340,7 @@ View the generated summary and open the output folder. The ORBIT summary report 
 
 ```
 output/
-└── 2026-11-01_14-32/
+└── 2026-11-01_14-32-07_3f9a1c2e/
     ├── ORBIT_Summary.pdf          ← ORBIT executive summary
     ├── ORBIT_Summary.docx         ← same content as Word document
     ├── ScubaGear/
@@ -367,7 +392,7 @@ orbit-m365/
 │   └── security/             ← folder encryption
 ├── data/
 │   ├── cve_mappings.json     ← bundled CVE reference (offline)
-│   └── tool_hashes.json      ← known-good tool hashes
+│   └── tool_hashes.json      ← tool hashes you recorded
 ├── tests/
 │   └── fixtures/             ← anonymised sample tool output
 └── docs/

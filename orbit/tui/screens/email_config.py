@@ -19,6 +19,8 @@ class EmailConfigScreen(Screen):
         self.store = store
 
     def _store(self) -> SecretStore:
+        if self.app.state.dry_run:
+            raise PermissionError("The credential store is disabled in dry-run mode")
         if self.store is None:
             self.store = SecretStore(self.app.state.passphrase)
         return self.store
@@ -41,8 +43,9 @@ class EmailConfigScreen(Screen):
             yield Label("[dim]CC addresses (comma-separated, optional)[/dim]")
             yield Input(id="smtp-cc")
             with Horizontal():
-                yield Button("Save", id="email-save", variant="primary")
-                yield Button("Send test email", id="email-test")
+                dry = self.app.state.dry_run
+                yield Button("Save", id="email-save", variant="primary", disabled=dry)
+                yield Button("Send test email", id="email-test", disabled=dry)
             yield Static("", id="email-result")
         yield Footer()
 
@@ -96,12 +99,17 @@ class EmailConfigScreen(Screen):
 
     @work(thread=True, exclusive=True, group="email-test")
     def _send_test(self, s: emailer.EmailSettings) -> None:
+        if self.app.state.dry_run:
+            return
         ok, detail = emailer.send_test(s)
         self.app.call_from_thread(self._show, detail, ok)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid not in ("email-save", "email-test"):
+            return
+        if self.app.state.dry_run:
+            self._show("Email is disabled in dry-run mode", False)
             return
         try:
             settings = self._read()

@@ -1,13 +1,53 @@
 """Command-line entry point."""
 import json
+import os
+import signal
 import sys
+import threading
+import time
 
 import click
 
 from orbit.config import VERSION
 
 
-def print_tool_table() -> None:
+STOP_GRACE = 10.0  # seconds allowed for a normal unwind after a termination signal
+
+
+def exit_cleanly_on_termination() -> None:
+    """SIGTERM and SIGHUP unwind normally, so private snapshots and tokens are removed.
+
+    Unwinding can block for good (Textual waits on a terminal that has gone away), so after
+    STOP_GRACE a watcher removes private storage itself and ends the process.
+    """
+    requested = threading.Event()
+    received: list[int] = []
+
+    def stop(number, frame) -> None:
+        signal.signal(number, signal.SIG_IGN)  # a second signal must not interrupt the clean-up
+        received.append(number)
+        requested.set()
+        raise SystemExit(128 + number)
+
+    def watch() -> None:
+        requested.wait()
+        time.sleep(STOP_GRACE)
+        try:
+            from orbit.core import workspace
+
+            workspace.remove_all()
+        finally:
+            os._exit(128 + received[0])
+
+    threading.Thread(target=watch, name="orbit-stop-watch", daemon=True).start()
+
+    for name in ("SIGTERM", "SIGHUP"):
+        number = getattr(signal, name, None)
+        if number is not None and signal.getsignal(number) is signal.SIG_DFL:
+            signal.signal(number, stop)
+
+
+def print_tool_table(dry_run: bool = False) -> None:
     """Print a Rich table of tool install/compatibility status (no TUI)."""
     from rich.console import Console
     from rich.table import Table
@@ -15,14 +55,19 @@ def print_tool_table() -> None:
     from orbit.core.platform_check import check_platform
     from orbit.core.tools import all_tools
 
-    plat = check_platform()
+    plat = None if dry_run else check_platform()
     table = Table(box=None, pad_edge=False, header_style="bold")
     for col in ("Tool", "Installed", "Compatible", "Version"):
         table.add_column(col)
     for tool in all_tools():
+        if dry_run:
+            table.add_row(tool.display, "not probed (dry run)", "—", "—")
+            continue
         ok = tool.compatible(plat)
         version = tool.installed_version() if ok else None
-        if not ok:
+        if tool.real_run_block:
+            compat = "[yellow]Dry-run only[/yellow]"
+        elif not ok:
             compat = "[red]✗ No[/red]"
         elif len(tool.supported_os) == 1:
             compat = f"[green]✓ {tool.supported_os[0].title()}[/green]"
@@ -76,9 +121,10 @@ def main(dry_run: bool, headless: bool, json_out: bool, tools_arg: str,
         sys.exit(0)
 
     if list_tools:
-        print_tool_table()
+        print_tool_table(dry_run)
         sys.exit(0)
 
+    exit_cleanly_on_termination()
     if headless:
         from orbit.core.headless import HeadlessError, run_headless
 

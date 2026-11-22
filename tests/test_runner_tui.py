@@ -36,10 +36,15 @@ async def test_hash_mismatch_skips_tool(tmp_path):
     assert run.status is RunStatus.SKIPPED
 
 
-async def test_missing_binary_fails_cleanly(tmp_path):
-    run = await Runner(tmp_path, {}).run_tool(get_tool("hawk"))
-    # pwsh absent -> FileNotFoundError handled; pwsh present -> module absent -> Failed
-    assert run.status is RunStatus.FAILED
+async def test_missing_binary_fails_cleanly(tmp_path, monkeypatch, bound):
+    # Verified and bound, so it reaches the launch; creation fails so no real tool can start.
+    async def missing(*argv, **kwargs):
+        raise FileNotFoundError(argv[0])
+
+    monkeypatch.setattr("orbit.core.runner.asyncio.create_subprocess_exec", missing)
+    ok = bound("hawk")
+    run = await Runner(tmp_path, {}, hash_results=[ok]).run_tool(get_tool("hawk"))
+    assert run.status is RunStatus.FAILED and not run.launched
 
 
 async def test_tui_launches_dry_run(monkeypatch):

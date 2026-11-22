@@ -22,7 +22,7 @@ class OutputScreen(Screen):
             yield Button("Browse", id="browse")
         yield Static("Client name (for report cover)")
         yield Input(self.app.state.client_name, placeholder="Confidential", id="client-name")
-        yield Static("[dim]A timestamped subfolder output/YYYY-MM-DD_HH-MM/ is created per run.[/dim]")
+        yield Static("[dim]A timestamped subfolder output/YYYY-MM-DD_HH-MM-SS_<id>/ is created per run.[/dim]")
         for f in FORMATS:
             label = f"{f} (ORBIT summary)" if f in ("PDF", "DOCX") else f"{f} (native tool output)"
             yield Checkbox(label, value=f in cfg.formats, id=f"fmt-{f}")

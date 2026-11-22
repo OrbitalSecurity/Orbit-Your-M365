@@ -17,6 +17,8 @@ class CredentialsScreen(Screen):
         self.store = store
 
     def _store(self) -> SecretStore:
+        if self.app.state.dry_run:
+            raise PermissionError("The credential store is disabled in dry-run mode")
         if self.store is None:
             self.store = SecretStore()
         return self.store
@@ -39,7 +41,8 @@ class CredentialsScreen(Screen):
                                 yield Button("show", id=f"toggle--{wid}")
                         else:
                             yield Input(id=wid)
-                    yield Button(f"Save {tool}", id=f"save--{tool}", variant="primary")
+                    yield Button(f"Save {tool}", id=f"save--{tool}", variant="primary",
+                                 disabled=self.app.state.dry_run)
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

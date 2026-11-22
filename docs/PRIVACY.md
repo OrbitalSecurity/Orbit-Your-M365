@@ -24,8 +24,9 @@ The only network activity that occurs when using ORBIT is:
 |----------|-----------------|------|
 | Microsoft 365 API calls | The tool ORBIT launches (ScubaGear, Maester, etc.) | During a run |
 | PowerShell Gallery downloads | `pwsh` / `Install-Module` | Only when you press Install/Update in the Installer screen |
-| PyPI downloads | `pip` | Only when you press Install/Update in the Installer screen |
 | OPA binary download | ScubaGear's `Initialize-SCuBA` | Only during ScubaGear first-time setup |
+
+There are no PyPI downloads: ROADtools install and update are disabled.
 
 All of the above are standard, expected operations of the underlying tools — not initiated by ORBIT's own code.
 
@@ -86,7 +87,7 @@ The output of ScubaGear, Maester, Monkey365, and other tools contains **detailed
 Each tool ORBIT launches has its own privacy and data handling characteristics:
 
 - **ScubaGear and Maester** connect to Microsoft 365 APIs. Microsoft's data handling is governed by your Microsoft service agreement and applicable data processing agreements.
-- **ROADtools** reads Entra ID directory data and stores it in a local SQLite database. No data leaves your machine via ROADtools.
+- **ROADtools production execution is disabled** pending memory-only or other non-plaintext authentication; only fixture-based dry-run is supported. ORBIT does not launch it, so it signs in to nothing and collects no tenant data through ORBIT.
 - **Hawk** reads Exchange and Entra audit logs and writes them to local files. No data leaves your machine via Hawk.
 - **Monkey365** reads Microsoft API data and writes reports locally. No data leaves your machine via Monkey365.
 

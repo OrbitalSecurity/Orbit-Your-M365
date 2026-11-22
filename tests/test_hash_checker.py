@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from orbit.core.hash_checker import (
     HashStatus,
     check_tool,
@@ -37,12 +39,13 @@ def test_missing_file_is_mismatch(tmp_path):
     assert r.status is HashStatus.MISMATCH and r.missing == ["gone.txt"]
 
 
-def test_gate_blocks_unless_override(tmp_path):
+def test_gate_blocks_and_has_no_override(tmp_path):
     (tmp_path / "f").write_text("x")
     r = check_tool("t", "1", tmp_path, _manifest("t", "1", {"f": "00"}))
     assert gate_run([r])[0] is False
-    assert gate_run([r], override=True)[0] is True
-    assert gate_run([])[0] is True
+    with pytest.raises(TypeError):
+        gate_run([r], override=True)
+    assert gate_run([])[0] is False
 
 
 def test_bundled_manifest_loads():
@@ -61,11 +64,11 @@ def test_tool_status():
     assert scuba.status(mac, "1.0.0") is ToolStatus.INCOMPATIBLE
 
 
-def test_launch_specs_keep_secrets_out_of_argv(tmp_path):
+def test_launch_specs_keep_secrets_out_of_argv(tmp_path, bound, roadtools_mechanics):
     creds = {"tenant_id": "tid", "client_id": "cid", "client_secret": "TOPSECRET",
              "cert_thumbprint": "AB12CD34EF"}
     for t in all_tools():
-        spec = t.launch_spec(creds, tmp_path)
+        spec = t.launch_spec(creds, tmp_path, bound(t.name).binding)
         assert "TOPSECRET" not in " ".join(spec.argv) and "AB12CD34EF" not in " ".join(spec.argv)
 
 

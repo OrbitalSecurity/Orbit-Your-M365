@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import platform
-import shutil
-import subprocess
 from dataclasses import dataclass, field
+
+from orbit.core.executables import Executable, ExecutableError, find_pwsh, pwsh_version
 
 
 @dataclass
@@ -13,6 +13,7 @@ class PlatformInfo:
     pwsh_path: str | None
     pwsh_version: tuple[int, ...] | None
     compat: dict[str, bool] = field(default_factory=dict)
+    pwsh_error: str = ""
 
     @property
     def pwsh7(self) -> bool:
@@ -23,20 +24,6 @@ def detect_os() -> str:
     return {"Windows": "windows", "Darwin": "macos", "Linux": "linux"}.get(
         platform.system(), "other"
     )
-
-
-def pwsh_version(pwsh: str | None = None) -> tuple[int, ...] | None:
-    exe = pwsh or shutil.which("pwsh")
-    if not exe:
-        return None
-    try:
-        out = subprocess.run(
-            [exe, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
-            capture_output=True, text=True, timeout=20,
-        ).stdout.strip()
-        return tuple(int(p) for p in out.split("-")[0].split(".") if p.isdigit())
-    except Exception:
-        return None
 
 
 def compat_flags(os_name: str, pwsh7: bool) -> dict[str, bool]:
@@ -52,8 +39,13 @@ def compat_flags(os_name: str, pwsh7: bool) -> dict[str, bool]:
 
 def check_platform() -> PlatformInfo:
     os_name = detect_os()
-    path = shutil.which("pwsh")
-    ver = pwsh_version(path)
-    info = PlatformInfo(os_name, path, ver)
+    path, ver, error = None, None, ""
+    try:
+        exe = Executable.capture(find_pwsh())
+        path = str(exe.path)
+        ver = pwsh_version(exe)
+    except ExecutableError as exc:
+        error = str(exc)
+    info = PlatformInfo(os_name, path, ver, pwsh_error=error)
     info.compat = compat_flags(os_name, info.pwsh7)
     return info

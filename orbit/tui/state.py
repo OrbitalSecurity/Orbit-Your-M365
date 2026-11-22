@@ -15,8 +15,8 @@ class SessionState:
     selected: set[str] = field(default_factory=set)
     output: OutputConfig = field(default_factory=OutputConfig)
     passphrase: str | None = None
-    run_folder: Path | None = None
+    run_folder: Path | None = None  # set only once a run has started and its report is finalised
+    run_notice: str = ""            # otherwise, why there is no report
     runs: dict[str, ToolRun] = field(default_factory=dict)
-    hash_override: bool = False
     client_name: str = ""
-    findings: list[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)  # of run_folder, published with it

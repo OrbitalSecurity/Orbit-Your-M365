@@ -12,6 +12,8 @@ ORBIT is a Python application that **launches** other security tools. Prerequisi
 | M365 App Registration | Non-interactive tool runs |
 | Global Administrator or delegated read roles | Most tools |
 
+**ROADtools production execution is disabled** pending a memory-only or other non-plaintext authentication design. Do not install it for ORBIT: real runs are blocked, and `--dry-run` does not need it.
+
 ---
 
 ## Windows 10/11 (Primary)
@@ -91,7 +93,7 @@ pytest tests/ -v
 python orbit.py --dry-run
 ```
 
-**Note:** ScubaGear is Windows-only. ORBIT shows it as "incompatible OS" on macOS. Maester, Monkey365, ROADtools, and Hawk all work on macOS with PowerShell 7.
+**Note:** ScubaGear is Windows-only. ORBIT shows it as "incompatible OS" on macOS. Maester, Monkey365 and Hawk are intended to work on macOS with PowerShell 7, but have not been validated with the real tools. ROADtools is dry-run only.
 
 ---
 
@@ -152,16 +154,11 @@ Install-Module -Name monkey365 -Scope CurrentUser
 Install-Module -Name Hawk -Scope CurrentUser
 ```
 
-```bash
-# ROADtools
-pip install roadrecon
-```
-
 ---
 
 ## Tool integrity setup (required before first real run)
 
-After installing tools you must record their SHA-256 hashes so ORBIT can verify them before each run. **Without this step, ORBIT will block every tool with "BLOCKED: integrity unverified".**
+After installing tools you must record their SHA-256 hashes so ORBIT can check them for changes before each run. **Without this step, ORBIT will block every tool with "BLOCKED: integrity unverified".**
 
 With your venv active, from the project root:
 
@@ -169,9 +166,13 @@ With your venv active, from the project root:
 python scripts/generate_hashes.py
 ```
 
-The script finds each installed tool's directory, hashes every file, and writes the results into `data/tool_hashes.json`. Run it again any time you update a tool.
+The script finds each installed tool's directory, hashes every file, and writes the results into `data/tool_hashes.json`. Run it again any time you update a tool. It will not replace a differing baseline for a version it has already recorded: investigate the change, then delete that entry by hand.
 
-Confirm it worked by opening ORBIT's **Pre-flight** screen — the "Tool integrity manifest" row should show ✓ green.
+The script locks the manifest while it works and replaces it in one step, so it is safe to interrupt or to start twice.
+
+The baseline detects accidental changes and changes by other OS principals. It **cannot defend against a malicious process running as the same OS user**, which can alter the manifest as well as the files. A match is not proof of authenticity or provenance. A ROADtools baseline does not enable real ROADtools runs.
+
+Confirm it worked by opening ORBIT's **Pre-flight** screen — each selected tool's "<tool> <version> integrity" row should show ✓ green.
 
 > **Dry-run mode** (`--dry-run`) does not require this step — it uses fixture data only.
 
@@ -189,6 +190,12 @@ See the [Testing section in README.md](../README.md#how-to-test-without-a-work-t
 |---------|----------|
 | `pwsh: command not found` | Install PowerShell 7 and ensure it's on PATH |
 | ScubaGear shows "incompatible OS" | Expected on macOS/Linux — ScubaGear is Windows-only |
+| "more than one pwsh is on PATH" or "relative PATH entry" | Leave exactly one PowerShell 7 reachable, through an absolute `PATH` entry |
+| "temporary path … is writable by other users" or "not inside the user profile" | Point `TMPDIR` (Windows: `TEMP`) at a directory only you can write to |
+| ROADtools "real run disabled" | Expected: use `--dry-run` |
+| An installer shows only an exit code | pip and PowerShell installer output is withheld because it can contain credentials, and prompts fail; run the installer yourself in a private terminal |
+| "extraction is not supported on Windows" | Expected: the destination cannot be pinned there. Extract on macOS or Linux |
+| Private package index or offline install | Set the `PIP_*` variables listed in the README before starting ORBIT |
 | Keychain not available | ORBIT will use the encrypted file fallback; set a strong passphrase |
 | `ModuleNotFoundError: No module named 'textual'` | Activate the venv: `source .venv/bin/activate` (Linux/macOS) or `.venv\Scripts\activate` (Windows) |
 | Banner looks garbled | Use a modern terminal: Windows Terminal, iTerm2, or a terminal with full Unicode support |

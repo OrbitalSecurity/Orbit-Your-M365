@@ -18,7 +18,7 @@ HELP_TEXT = f"""[bold cyan]ORBIT — Keyboard Shortcuts & Reference[/bold cyan]
 [bold]SCREENS[/bold]
   Credentials    Enter and save M365 tenant credentials
   Tools          Select which tools to run
-  Install        Install or update tools from official sources
+  Install        Install or update tools from official sources (not ROADtools)
   Output         Set output directory, report formats, client name
   Email          Configure SMTP email delivery on completion
   Run ▶          Execute selected tools and stream live logs
@@ -29,14 +29,14 @@ HELP_TEXT = f"""[bold cyan]ORBIT — Keyboard Shortcuts & Reference[/bold cyan]
   ScubaGear     CISA SCuBA M365 baseline (Windows only) — github.com/cisagov/ScubaGear
   Maester       280+ Microsoft security tests              — maester.dev
   Monkey365     CIS M365/Azure benchmarks                 — github.com/silverhack/monkey365
-  ROADtools     Entra ID enumeration (Python)             — github.com/dirkjanm/ROADtools
+  ROADtools     Entra ID enumeration (dry-run only)       — github.com/dirkjanm/ROADtools
   Hawk          M365 incident response & threat hunting    — github.com/T0pCyber/hawk
 
 [bold]REQUIREMENTS[/bold]
   • Run as Administrator (Windows) or sudo (Linux/macOS)
   • Global Administrator or equivalent M365 role
   • PowerShell 7+ for ScubaGear / Maester / Monkey365
-  • Python 3.10+ for ROADtools
+  • ROADtools real runs are disabled until sign-in no longer writes plaintext tokens
 
 [bold]REPORTS[/bold]
   Output folder: set in Output screen, remembered in ~/.orbit/config.toml

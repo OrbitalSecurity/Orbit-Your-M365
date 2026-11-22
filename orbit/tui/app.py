@@ -117,7 +117,7 @@ class OrbitApp(App):
 
     def start_session(self) -> None:
         """Push onboarding on first run, otherwise the home screen."""
-        if should_show():
+        if should_show(self.state.dry_run):
             self.push_screen(OnboardingScreen())
         else:
             mark_done()

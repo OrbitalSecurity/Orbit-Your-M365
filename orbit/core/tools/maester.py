@@ -1,6 +1,12 @@
-from pathlib import Path
+from __future__ import annotations
 
-from orbit.core.tools.base import LaunchSpec, Tool, cred_env, ps_command
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from orbit.core.tools.base import LaunchSpec, Tool, cred_env
+
+if TYPE_CHECKING:
+    from orbit.core.hash_checker import Binding
 
 
 class Maester(Tool):
@@ -13,9 +19,8 @@ class Maester(Tool):
     fixture = "maester_sample.json"
     output_name = "maester.json"
 
-    def launch_spec(self, creds: dict, out_dir: Path) -> LaunchSpec:
+    def launch_spec(self, creds: dict, out_dir: Path, binding: Binding) -> LaunchSpec:
         script = (
-            "Import-Module Maester; "
             "if ($env:ORBIT_MAESTER_CERT_THUMBPRINT) { Connect-MgGraph "
             "-ClientId $env:ORBIT_MAESTER_CLIENT_ID -TenantId $env:ORBIT_MAESTER_TENANT_ID "
             "-CertificateThumbprint $env:ORBIT_MAESTER_CERT_THUMBPRINT } else { "
@@ -28,4 +33,4 @@ class Maester(Tool):
         )
         env = cred_env("MAESTER", creds)
         env["ORBIT_OUT_DIR"] = str(out_dir)
-        return LaunchSpec(ps_command(script), env, out_dir)
+        return self.ps_launch(script, env, out_dir, binding)
